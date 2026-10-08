@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { AIProvider } from '../ai.types';
+import { AIProvider, AIMultimodalOptions } from '../ai.types';
 import { env } from '../../../config/env';
 import {
   AIConfigurationError,
@@ -75,6 +75,80 @@ export class GeminiProvider implements AIProvider {
       const text = response.text();
 
       // Extract usage metadata if present
+      const usageMetadata = response.usageMetadata;
+      const usage = usageMetadata
+        ? {
+            inputTokens: usageMetadata.promptTokenCount ?? null,
+            outputTokens: usageMetadata.candidatesTokenCount ?? null,
+            totalTokens: usageMetadata.totalTokenCount ?? null,
+          }
+        : null;
+
+      return {
+        text,
+        provider: this.name,
+        model: modelName,
+        usage,
+        latencyMs,
+      };
+    } catch (error: any) {
+      const latencyMs = Date.now() - startTime;
+      if (error instanceof AITimeoutError) {
+        throw error;
+      }
+      throw this.normalizeError(error, latencyMs);
+    }
+  }
+
+  async generateMultimodal(options: AIMultimodalOptions): Promise<AIResponse> {
+    if (!options.prompt || !options.prompt.trim()) {
+      throw new AIInvalidRequestError('Prompt text cannot be empty', this.name);
+    }
+    if (!options.images || options.images.length === 0) {
+      throw new AIInvalidRequestError('Multimodal request must contain at least one image', this.name);
+    }
+
+    const client = this.getClient();
+    const modelName = options.model || this.defaultModel;
+    const startTime = Date.now();
+    const timeoutMs = options.timeoutMs || 25000;
+
+    try {
+      const model = client.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: options.temperature ?? 0.2,
+          maxOutputTokens: options.maxTokens,
+        },
+        systemInstruction: options.systemPrompt,
+      });
+
+      const parts: any[] = [];
+      for (const img of options.images) {
+        const base64Data = Buffer.isBuffer(img.data) ? img.data.toString('base64') : img.data;
+        parts.push({
+          inlineData: {
+            data: base64Data,
+            mimeType: img.mimeType,
+          },
+        });
+      }
+      parts.push(options.prompt);
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const id = setTimeout(() => {
+          clearTimeout(id);
+          reject(new AITimeoutError(`Gemini multimodal request timed out after ${timeoutMs}ms`, this.name));
+        }, timeoutMs);
+      });
+
+      const generatePromise = model.generateContent(parts);
+      const result = await Promise.race([generatePromise, timeoutPromise]);
+      const latencyMs = Date.now() - startTime;
+
+      const response = await result.response;
+      const text = response.text();
+
       const usageMetadata = response.usageMetadata;
       const usage = usageMetadata
         ? {

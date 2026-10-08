@@ -19,12 +19,13 @@ import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { TextVerifier } from '../components/verification/TextVerifier';
 import { UrlVerifier } from '../components/verification/UrlVerifier';
+import { ImageVerifier } from '../components/verification/ImageVerifier';
 import { AIDiagnosticsCard } from '../components/ai/AIDiagnosticsCard';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [activeTab, setActiveTab] = useState<'TEXT' | 'URL'>('TEXT');
+  const [activeTab, setActiveTab] = useState<'TEXT' | 'URL' | 'IMAGE'>('TEXT');
 
   return (
     <div className="flex-1 py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full space-y-8">
@@ -35,7 +36,7 @@ export const DashboardPage: React.FC = () => {
             <h1 className="text-2xl font-bold tracking-tight text-white">
               Verification Workspace
             </h1>
-            <Badge variant="brand">Text & URL Engines Active</Badge>
+            <Badge variant="brand">Text, URL & Image Engines Active</Badge>
           </div>
           <p className="text-xs text-slate-400">
             Authenticated session for <span className="text-slate-200 font-medium">{user?.email}</span>
@@ -85,34 +86,47 @@ export const DashboardPage: React.FC = () => {
       )}
 
       {/* Mode Navigation Tabs */}
-      <div className="flex items-center p-1.5 rounded-xl bg-slate-900 border border-slate-800 max-w-md">
+      <div className="flex items-center p-1.5 rounded-xl bg-slate-900 border border-slate-800 max-w-xl">
         <button
           onClick={() => setActiveTab('TEXT')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
             activeTab === 'TEXT'
               ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <FileText className="w-4 h-4" />
-          Text Claim Verification
+          Text Claims
         </button>
         <button
           onClick={() => setActiveTab('URL')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
             activeTab === 'URL'
               ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <Globe className="w-4 h-4" />
-          URL Webpage Verification
+          Web URLs
+        </button>
+        <button
+          onClick={() => setActiveTab('IMAGE')}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+            activeTab === 'IMAGE'
+              ? 'bg-gradient-to-r from-teal-500 to-emerald-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Image className="w-4 h-4" />
+          Images
         </button>
       </div>
 
       {/* PRIMARY WORKSPACE */}
       <section className="transition-all duration-300">
-        {activeTab === 'TEXT' ? <TextVerifier /> : <UrlVerifier />}
+        {activeTab === 'TEXT' && <TextVerifier />}
+        {activeTab === 'URL' && <UrlVerifier />}
+        {activeTab === 'IMAGE' && <ImageVerifier />}
       </section>
 
       {/* Upcoming Verification Modalities Architecture */}
@@ -149,15 +163,15 @@ export const DashboardPage: React.FC = () => {
             <Badge variant="success" size="sm">Active (Stage 4)</Badge>
           </Card>
 
-          <Card className="border-dashed border-slate-800 bg-slate-950/40">
-            <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mb-3">
-              <Image className="w-5 h-5 text-purple-400" />
+          <Card className="border-teal-900/60 bg-teal-950/20">
+            <div className="w-9 h-9 rounded-lg bg-teal-950 border border-teal-800 flex items-center justify-center text-teal-400 mb-3">
+              <Image className="w-5 h-5 text-teal-400" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-200 mb-1">Image Forensics</h3>
-            <p className="text-xs text-slate-400 leading-relaxed mb-3">
-              Reverse search, perceptual matching, clone detection, and EXIF forensics.
+            <h3 className="text-sm font-semibold text-white mb-1">Image Forensics</h3>
+            <p className="text-xs text-slate-300 leading-relaxed mb-3">
+              Multimodal vision, OCR extraction, empirical claim grounding, and context forensics.
             </p>
-            <Badge variant="neutral" size="sm">Stage 5 Pipeline</Badge>
+            <Badge variant="success" size="sm">Active (Stage 5)</Badge>
           </Card>
 
           <Card className="border-dashed border-slate-800 bg-slate-950/40">

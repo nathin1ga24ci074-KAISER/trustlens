@@ -15,11 +15,27 @@ export interface AIProvider {
   generateText(options: AIGenerateOptions): Promise<AIResponse>;
 
   /**
-   * Future multimodal capabilities (Stage 2+)
+   * Multimodal image capability (Stage 5+)
    */
+  generateMultimodal?(options: AIMultimodalOptions): Promise<AIResponse>;
   analyzeImage?(imageData: Buffer | string, mimeType: string, prompt: string): Promise<AIResponse>;
   analyzeVideo?(videoData: Buffer | string, mimeType: string, prompt: string): Promise<AIResponse>;
   extractClaims?(text: string): Promise<AIResponse>;
   classify?(text: string, categories: string[]): Promise<AIResponse>;
   summarize?(text: string): Promise<AIResponse>;
+}
+
+export interface AIMultimodalImage {
+  data: Buffer | string;
+  mimeType: string;
+}
+
+export interface AIMultimodalOptions {
+  prompt: string;
+  images: AIMultimodalImage[];
+  model?: string;
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
 }

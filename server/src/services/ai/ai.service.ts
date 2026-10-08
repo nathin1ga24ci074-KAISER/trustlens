@@ -144,6 +144,17 @@ export class AIService {
     // Default safe: if unknown error, allow fallback attempt
     return true;
   }
+
+  /**
+   * Multimodal vision analysis using Gemini primary provider
+   */
+  async generateMultimodal(options: import('./ai.types').AIMultimodalOptions): Promise<AIResponse> {
+    const gemini = this.getProvider('gemini');
+    if (!gemini.generateMultimodal) {
+      throw new AIProviderError('Multimodal capability is not implemented on the Gemini provider', 'gemini');
+    }
+    return gemini.generateMultimodal(options);
+  }
 }
 
 export const aiService = new AIService();

@@ -234,3 +234,116 @@ export interface VerificationSummary {
   averageTrustScore: number;
   recentVerifications: VerificationHistoryItem[];
 }
+
+// -------------------------------------------------------------
+// STAGE 5 IMAGE VERIFICATION TYPES
+// -------------------------------------------------------------
+
+export type ImageClassification =
+  | 'PHOTOGRAPH'
+  | 'SCREENSHOT'
+  | 'SCANNED_DOCUMENT'
+  | 'MEME_OR_SOCIAL'
+  | 'INFOGRAPHIC_OR_CHART'
+  | 'DIGITAL_GRAPHIC'
+  | 'UNKNOWN';
+
+export type ClaimSourceType = 'IMAGE_VISUAL' | 'IMAGE_TEXT' | 'USER_CONTEXT';
+
+export interface ImageMetadataAnalysis {
+  metadataAvailable: boolean;
+  signals: {
+    mimeType?: string;
+    width?: number;
+    height?: number;
+    sizeBytes?: number;
+    cameraMake?: string | null;
+    cameraModel?: string | null;
+    timestamp?: string | null;
+    hasLocationData: boolean;
+  };
+  limitations: string[];
+}
+
+export interface ImageManipulationAnalysis {
+  detected: boolean;
+  severity: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  indicators: string[];
+  limitations: string[];
+}
+
+export interface ImageContextAssessment {
+  verdict: 'CONSISTENT' | 'MISMATCH' | 'INCONCLUSIVE';
+  claimedLocation?: string | null;
+  claimedDate?: string | null;
+  claimedEvent?: string | null;
+  explanation: string;
+}
+
+export interface ImageClaimVerificationResult {
+  claimId: string;
+  claim: string;
+  claimType: ClaimType;
+  importance: ClaimImportance;
+  source: ClaimSourceType;
+  entities: string[];
+  timeContext?: string | null;
+  locationContext?: string | null;
+  verdict: PrimaryVerdict;
+  trustScore: number;
+  confidence: ConfidenceLevel;
+  supportingEvidence: EvidenceItem[];
+  contradictingEvidence: EvidenceItem[];
+  neutralEvidence: EvidenceItem[];
+  contradictions: ContradictionAnalysisResult;
+  searchQueries: string[];
+  provenance: Array<{
+    source: string;
+    domain: string;
+    relationship?: string;
+  }>;
+}
+
+export interface ImageVerificationResult {
+  verificationId: string;
+  inputType: 'IMAGE';
+  image: {
+    fileType: string;
+    width: number;
+    height: number;
+    sizeBytes: number;
+    imageClassification: ImageClassification;
+    previewUrl?: string;
+  };
+  userContext?: string | null;
+  extractedText: string[];
+  visualAnalysis: {
+    description: string;
+    entities: string[];
+    scene: string;
+    possibleEvent?: string | null;
+    possibleLocation?: string | null;
+    possibleDate?: string | null;
+    observations: string[];
+    inferredAspects: string[];
+    uncertainties: string[];
+  };
+  metadataAnalysis: ImageMetadataAnalysis;
+  manipulationAnalysis: ImageManipulationAnalysis;
+  claims: ImageClaimVerificationResult[];
+  contextAssessment: ImageContextAssessment;
+  overallVerdict: PrimaryVerdict;
+  trustScore: number;
+  confidence: ConfidenceLevel;
+  summary: string;
+  reasoning: string;
+  limitations: string[];
+  createdAt: string;
+}
+
+export interface VerifyImageResponse {
+  success: boolean;
+  data?: ImageVerificationResult;
+  message?: string;
+  errorCode?: string;
+}

@@ -23,7 +23,7 @@ trustlens/
 │   │   │   ├── common/         # Atomic UI components (Button, Input, Card, Badge, Alert)
 │   │   │   ├── layout/         # Layout shells (Navbar, Footer, AppLayout)
 │   │   │   ├── auth/           # Route guards (ProtectedRoute)
-│   │   │   └── verification/   # Verification UIs (TextVerifier, UrlVerifier)
+│   │   │   └── verification/   # Verification UIs (TextVerifier, UrlVerifier, ImageVerifier)
 │   │   ├── context/            # Global React contexts (AuthContext)
 │   │   ├── pages/              # Routed views (Landing, Login, Register, Dashboard, History)
 │   │   ├── services/           # HTTP API client layer (api.ts)
@@ -36,25 +36,24 @@ trustlens/
 │   └── src/
 │       ├── config/             # Environment & Prisma client instances
 │       ├── controllers/        # Express route controllers (Auth, Verification)
-│       ├── middleware/         # Security, validation, and session auth middleware
+│       ├── middleware/         # Security, validation, upload (multer memory), and auth
 │       ├── routes/             # REST endpoint routing definitions
 │       ├── services/
-│       │   ├── ai/             # AI Provider abstraction (Gemini, Groq, AIService)
+│       │   ├── ai/             # AI Provider abstraction (Gemini, Groq, AIService with Multimodal)
 │       │   ├── text/           # Text claim extraction & verification service
 │       │   ├── evidence/       # Grounded web evidence retrieval service
 │       │   ├── contradiction/  # Stance classification & contradiction detection
 │       │   ├── scoring/        # Deterministic claim trust scoring
 │       │   └── verification/
 │       │       ├── url/        # Stage 4 URL verification engine
-│       │       │   ├── url-safety.service.ts       # SSRF protections & DNS validation
-│       │       │   ├── url-fetch.service.ts        # Streaming fetch, size & redirect limits
-│       │       │   ├── url-metadata-extractor.ts   # Cheerio OG/metadata parser
-│       │       │   ├── url-content-extractor.ts    # Article container & boilerplate filter
-│       │       │   ├── url-claim-extractor.ts      # Multi-claim prioritization & weighting
-│       │       │   ├── headline-analyzer.ts        # Headline vs body framing analysis
-│       │       │   ├── self-consistency-analyzer.ts# Internal narrative conflict detector
-│       │       │   ├── url-scoring.service.ts      # Deterministic weighted URL scoring
-│       │       │   └── url-verification.service.ts # Full pipeline orchestrator
+│       │       ├── image/      # Stage 5 Image verification engine
+│       │       │   ├── image-security.service.ts   # Magic bytes, dimension limits, path sanitization
+│       │       │   ├── image-metadata.service.ts   # EXIF parsing & GPS coordinate privacy shield
+│       │       │   ├── image-analysis.service.ts   # Gemini multimodal vision (Observed vs Inferred, OCR)
+│       │       │   ├── image-claim-extractor.ts    # Factual claim formulation & weighting
+│       │       │   ├── image-context.service.ts    # Location/date/event context recycling detector
+│       │       │   ├── image-scoring.service.ts    # Deterministic image scoring & veto rules
+│       │       │   └── image-verification.service.ts # Full image verification coordinator
 │       │       └── verification-history.service.ts # Per-user audit history persistence
 │       ├── utils/              # Cryptographic hashing & JWT utilities
 │       ├── app.ts              # Express application factory
@@ -81,7 +80,8 @@ All communication between frontend and backend uses JSON-encoded payloads over H
 ### Verification Endpoints:
 - `POST /api/verify/text`: Verify natural language text claims against independent web evidence.
 - `POST /api/verify/url`: Verify public web articles, extract claims, detect clickbait framing, and synthesize external evidence.
-- `GET /api/verify/history`: Retrieve the authenticated user's verification history (filterable by `TEXT` or `URL`).
+- `POST /api/verify/image`: Verify digital images (multipart/form-data: image file + optional user context) with multimodal visual analysis, OCR, context recycling checks, and independent web evidence grounding.
+- `GET /api/verify/history`: Retrieve the authenticated user's verification history (filterable by `TEXT`, `URL`, or `IMAGE`).
 - `GET /api/verify/:id`: Retrieve complete verification report with strict user ownership guards.
 
 ---
@@ -186,3 +186,63 @@ VERIFICATION SERVICES
   - `LEGIT`: Final score $\ge 65$ with confirmed primary claims and no veto.
   - `FAKE`: Final score $\le 35$ or contradicted primary claims with low overall score.
   - `INCONCLUSIVE`: Mixed evidence, non-empirical assertions, or unverified claims.
+
+---
+
+## 6. Image Verification Architecture (Stage 5)
+
+### 1. In-Memory Upload & Binary Security (`ImageSecurityService`)
+- **Memory Buffer Ingestion**: Files are held in RAM via `multer.memoryStorage()`, preventing disk traversal, temporary file residue, and filesystem execution attacks.
+- **Magic Byte Validation**: Direct inspection of file binary header signatures:
+  - JPEG: `FF D8 FF`
+  - PNG: `89 50 4E 47 0D 0A 1A 0A`
+  - WEBP: `RIFF....WEBP`
+  - Executable headers (`MZ` DOS/PE, `\x7fELF`, script tags) disguised with `.jpg` or `.png` extensions are rejected with `400 Bad Request` (`IMAGE_INVALID_TYPE`).
+- **Decompression Bomb Protection**: Reads image dimension headers before full processing. Maximum dimension allowed is 10,000px and maximum area is 40 megapixels, preventing zip bomb style memory exhaustion.
+- **Path Traversal Shield**: Sanitizes `req.file.originalname` to strip directory paths (`../`, `..\`) and control characters.
+
+### 2. Forensic Metadata & Privacy Shield (`ImageMetadataService`)
+- **EXIF Extraction**: Parses camera model, lens metadata, software, exposure settings, and capture timestamp.
+- **GPS Privacy Shield**: Coarsely flags `hasLocationData: boolean` when geolocation EXIF tags are detected. **Raw GPS coordinates (latitude, longitude, altitude) are strictly scrubbed** and never returned in API payloads or stored in the database.
+
+### 3. Multimodal Visual Understanding & OCR (`ImageAnalysisService`)
+- **Gemini Multimodal Integration**: Uploaded image buffer is converted to base64 inline data parts and evaluated by Gemini Vision models.
+- **Separation of Observed vs. Inferred**: The vision prompt explicitly enforces strict demarcation between:
+  - `OBSERVED`: Objective visual facts directly visible in the image frame.
+  - `INFERRED`: Interpretations, hypotheses, and contextual deductions.
+- **OCR Text Extraction**: Extracts textual banners, meme captions, watermarks, placards, headlines, and document text embedded within the image.
+- **Scene Classification & Manipulation Signs**: Identifies scene category (`MEME_SCREENSHOT`, `NEWS_EDITORIAL`, `DOCUMENT`, `SOCIAL_MEDIA`, `PHOTO_SCENE`) and detects visual artifacts (shadow inconsistencies, cloning, splice boundaries, AI generation traits).
+
+### 4. Claim Extraction & Prioritization (`ImageClaimExtractor`)
+- Formulates up to 4 verifiable factual assertions tagged by origin:
+  - `IMAGE_VISUAL`: Empirical claims describing visual phenomena depicted.
+  - `IMAGE_TEXT`: Factual claims stated in OCR text found in the image.
+  - `USER_CONTEXT`: Hypothesis assertions provided by the user alongside the upload.
+- Prioritizes claims with deterministic weighting (`PRIMARY: 1.0`, `SUPPORTING: 0.5`, `MINOR: 0.25`).
+
+### 5. Context Recycling Analysis (`ImageContextService`)
+- **Image Authenticity vs. Context Recycling**: A photograph may be visually authentic (not AI-generated or edited) but weaponized with a false date, location, or event label.
+- Compares user context and visual details against grounded web evidence to classify context fidelity:
+  - `CONSISTENT`: Depicted event matches the stated context.
+  - `MISMATCH`: The image is recycled from a different historical event, date, or geographical location.
+  - `INCONCLUSIVE`: Insufficient web evidence to confirm or refute context assertions.
+
+### 6. Deterministic Image Scoring Formula (`ImageScoringService`)
+- **Weighted Claim Score**:
+  $$\text{Base Score} = \frac{\sum (\text{Claim Score}_i \times \text{Weight}_i)}{\sum \text{Weight}_i}$$
+- **Deductions**:
+  - Context Mismatch: $-25$ deduction
+  - Context Inconclusive with User Hypothesis: $-10$ deduction
+  - Image Manipulation Severity: $-15$ (High / Likely manipulated), $-7$ (Medium / Suspicious)
+- **Primary Claim Veto Rule**:
+  - If any `PRIMARY` claim is ruled `FAKE`, the overall image verdict **cannot be `LEGIT`**.
+  - If context recycling is detected (`MISMATCH`), the overall image verdict **cannot be `LEGIT`**.
+- **Verdict Scale**:
+  - `LEGIT`: Final score $\ge 65$, no primary claim veto, context consistent or neutral.
+  - `FAKE`: Final score $\le 35$, or primary claim contradicted, or context mismatch with low score.
+  - `INCONCLUSIVE`: Insufficient evidence or conflicting claims.
+
+### 7. Transparent Limitations
+TrustLens explicitly surfaces forensic boundaries:
+> *"Direct reverse-image matching was not available; TrustLens verified the image's claims and context using independent web evidence."*
+

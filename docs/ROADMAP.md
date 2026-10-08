@@ -44,17 +44,28 @@
 
 ---
 
-## Phase 5: Visual Forensics & Image Verification (Next Milestone)
-- [ ] Digital image upload and metadata extraction (EXIF, camera, timestamp, GPS)
-- [ ] Perceptual hashing (pHash) and visual similarity search
-- [ ] Reverse image search & independent web provenance tracing
-- [ ] AI image manipulation & synthetic media (deepfake/diffusion) artifact detection
+## Phase 5: Evidence-Based Image Verification (Complete)
+- [x] Multi-format upload & memory-buffer security (JPEG, PNG, WEBP, 10MB limit)
+- [x] Magic byte sniffing & disguised executable defense (rejects EXE, ELF, scripts with spoofed extensions)
+- [x] Image decompression bomb & dimension defenses (10,000px dimension and 40MP pixel limits)
+- [x] Path traversal sanitization on uploaded filenames
+- [x] EXIF & image metadata extraction with strict GPS coordinate privacy shielding (hasLocationData coarse flag, zero lat/long storage)
+- [x] Multimodal visual understanding via Gemini API with strict separation between OBSERVED facts and INFERRED speculation
+- [x] Embedded OCR text extraction for memes, screenshots, signage, and documents
+- [x] Factual claim formulation tagged by source (`IMAGE_VISUAL`, `IMAGE_TEXT`, `USER_CONTEXT`) and priority (`PRIMARY`, `SUPPORTING`, `MINOR`)
+- [x] Independent web evidence retrieval reusing Stage 3 Google Search Grounding engine
+- [x] Image authenticity vs. context recycling evaluation (detecting real images recycled in false locations, dates, or events)
+- [x] Deterministic image trust scoring with Primary Claim Veto Rule, context mismatch penalties, and manipulation deductions
+- [x] Reactive client UI (`ImageVerifier.tsx`, drag-and-drop file upload, preview, 9-step verification stepper, OCR drawer, evidence citations, safe metadata inspector)
+- [x] Transparent limitation disclosure ("Direct reverse-image matching was not available; verified via claims and context")
+- [x] Per-user verification history audit persistence for `IMAGE` type
 
 ---
 
-## Phase 6: Video & Social Media Reels Verification (Future Milestone)
+## Phase 6: Video & Social Media Reels Verification (Next Milestone)
 - [ ] Video URL / file ingestion with frame sampling
 - [ ] Audio extraction and speech-to-text transcription
 - [ ] Keyframe reverse visual search and timeline consistency checks
 - [ ] Deepfake facial artifact and synthetic audio detection
 - [ ] Multi-claim temporal alignment and overall trust assessment
+

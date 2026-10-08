@@ -16,7 +16,12 @@ import {
   ShieldCheck,
   AlertTriangle,
 } from 'lucide-react';
-import { VerificationHistoryItem, TextVerificationResult, UrlVerificationResult } from '@trustlens/shared';
+import {
+  VerificationHistoryItem,
+  TextVerificationResult,
+  UrlVerificationResult,
+  ImageVerificationResult,
+} from '@trustlens/shared';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
@@ -26,8 +31,10 @@ export const HistoryPage: React.FC = () => {
   const [historyItems, setHistoryItems] = useState<VerificationHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'TEXT' | 'URL'>('ALL');
-  const [selectedVerification, setSelectedVerification] = useState<TextVerificationResult | UrlVerificationResult | null>(null);
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'TEXT' | 'URL' | 'IMAGE'>('ALL');
+  const [selectedVerification, setSelectedVerification] = useState<
+    TextVerificationResult | UrlVerificationResult | ImageVerificationResult | null
+  >(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   useEffect(() => {
@@ -150,6 +157,14 @@ export const HistoryPage: React.FC = () => {
           >
             Webpage URLs
           </button>
+          <button
+            onClick={() => setTypeFilter('IMAGE')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              typeFilter === 'IMAGE' ? 'bg-slate-800 text-teal-400' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Images
+          </button>
         </div>
       </div>
 
@@ -230,11 +245,17 @@ export const HistoryPage: React.FC = () => {
 
       {/* Verification Detail Modal */}
       {selectedVerification && (() => {
-        const isUrl = 'inputUrl' in selectedVerification;
+        const isImage = 'inputType' in selectedVerification && (selectedVerification as any).inputType === 'IMAGE';
+        const isUrl = !isImage && 'inputUrl' in selectedVerification;
+        const imageRes = isImage ? (selectedVerification as ImageVerificationResult) : null;
         const urlRes = isUrl ? (selectedVerification as UrlVerificationResult) : null;
-        const textRes = !isUrl ? (selectedVerification as TextVerificationResult) : null;
-        const verdict = urlRes ? urlRes.overallVerdict : textRes!.verdict;
-        const heading = urlRes ? urlRes.page.title : textRes!.claim;
+        const textRes = !isImage && !isUrl ? (selectedVerification as TextVerificationResult) : null;
+        const verdict = imageRes ? imageRes.overallVerdict : urlRes ? urlRes.overallVerdict : textRes!.verdict;
+        const heading = imageRes
+          ? (imageRes.userContext || imageRes.visualAnalysis.description)
+          : urlRes
+          ? urlRes.page.title
+          : textRes!.claim;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
@@ -244,7 +265,9 @@ export const HistoryPage: React.FC = () => {
                   <div className="flex items-center gap-2 mb-1">
                     {getVerdictBadge(verdict)}
                     <Badge variant="neutral">{selectedVerification.confidence} CONFIDENCE</Badge>
-                    <Badge variant={isUrl ? 'brand' : 'neutral'}>{isUrl ? 'URL WEB PAGE' : 'TEXT CLAIM'}</Badge>
+                    <Badge variant={isImage ? 'brand' : isUrl ? 'brand' : 'neutral'}>
+                      {isImage ? 'IMAGE FORENSICS' : isUrl ? 'URL WEB PAGE' : 'TEXT CLAIM'}
+                    </Badge>
                   </div>
                   <h3 className="text-lg font-bold text-white leading-snug">
                     "{heading}"
@@ -252,6 +275,7 @@ export const HistoryPage: React.FC = () => {
                   <span className="text-[11px] text-slate-500 font-mono">
                     Verified: {new Date(selectedVerification.createdAt).toLocaleString()}
                     {urlRes && ` • ${urlRes.page.domain}`}
+                    {imageRes && ` • ${imageRes.image.fileType} (${imageRes.image.width}×${imageRes.image.height}px)`}
                   </span>
                 </div>
                 <button
@@ -272,6 +296,60 @@ export const HistoryPage: React.FC = () => {
                   {selectedVerification.summary}
                 </p>
               </div>
+
+              {/* Image Specific Sections */}
+              {imageRes && (
+                <div className="space-y-4">
+                  {imageRes.image.previewUrl && (
+                    <div className="flex justify-center p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+                      <img
+                        src={imageRes.image.previewUrl}
+                        alt="Verification thumbnail"
+                        className="max-h-48 object-contain rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  <div className="p-3.5 rounded-lg bg-slate-950/60 border border-slate-800 space-y-1">
+                    <span className="text-xs font-semibold text-slate-300 block">Visual Scene Analysis:</span>
+                    <p className="text-xs text-slate-400">{imageRes.visualAnalysis.description}</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 text-xs space-y-1">
+                      <span className="font-semibold text-slate-300 block">Context Attribution:</span>
+                      <span className="text-slate-400">{imageRes.contextAssessment.explanation}</span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 text-xs space-y-1">
+                      <span className="font-semibold text-slate-300 block">Manipulation Forensics:</span>
+                      <span className="text-slate-400">Severity: {imageRes.manipulationAnalysis.severity}</span>
+                    </div>
+                  </div>
+
+                  {/* Claims List */}
+                  <div className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
+                      Claims Verified ({imageRes.claims.length})
+                    </span>
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {imageRes.claims.map((c, idx) => (
+                        <div key={idx} className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-200">"{c.claim}"</span>
+                            {getVerdictBadge(c.verdict)}
+                          </div>
+                          <div className="text-[11px] text-slate-400 flex items-center gap-3">
+                            <span>Importance: <strong>{c.importance}</strong></span>
+                            <span>Source: <strong>{c.source}</strong></span>
+                            <span>Score: <strong>{c.trustScore}</strong></span>
+                            <span>Citations: {c.supportingEvidence.length + c.contradictingEvidence.length}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* URL Specific Sections */}
               {urlRes && (

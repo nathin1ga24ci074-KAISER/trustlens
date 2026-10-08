@@ -13,10 +13,12 @@ TrustLens is an empirical verification platform engineered to evaluate the credi
 - **Stage 2 — AI Provider Foundation**: Decoupled multi-provider abstraction (`AIProvider`, `AIService`) integrating Google Gemini (Primary) and Groq (Fast / Secondary) with automated error-aware fallback, usage normalization, and zero frontend API key leakage.
 - **Stage 3 — Evidence-Backed Text Verification (`POST /api/verify/text`)**: Natural language claim extraction, entity resolution, search query generation, Google Search Grounding for real-time web citations, stance classification (`SUPPORTS`, `CONTRADICTS`, `NEUTRAL`), contradiction severity analysis, deterministic trust scoring (0–100), and epistemic uncertainty penalties.
 - **Stage 4 — Evidence-Backed URL Verification (`POST /api/verify/url`)**: Webpage verification pipeline featuring SSRF defense shields, streaming HTML fetch, readability-style container extraction, structured metadata parsing, multi-claim prioritization (`PRIMARY`, `SUPPORTING`, `MINOR`), independent web evidence synthesis, circular source exclusion (the verified page cannot confirm itself), headline clickbait distortion detection, internal narrative consistency checks, and deterministic URL trust scoring with primary claim veto rules.
+- **Stage 5 — Evidence-Backed Image Verification (`POST /api/verify/image`)**: Digital image verification pipeline combining in-memory buffer validation, magic byte sniffing against disguised executables, decompression bomb protection (10,000px/40MP), EXIF parsing with GPS privacy shielding, multimodal visual analysis (Gemini API with strict separation of OBSERVED vs INFERRED facts), embedded OCR text extraction, claim source formulation (`IMAGE_VISUAL`, `IMAGE_TEXT`, `USER_CONTEXT`), image authenticity vs. context recycling evaluation (detecting genuine images placed in false contexts), deterministic scoring with primary claim and context veto rules, and complete reactive UI.
 
 ### Upcoming Milestones:
-- **Stage 5 — Visual Forensics & Image Verification**: Digital image upload, metadata forensics (EXIF), perceptual hashing (pHash), reverse image search, and AI synthetic media (deepfake/diffusion) detection.
 - **Stage 6 — Video & Social Media Reels Verification**: Video ingestion, keyframe sampling, audio transcription, timeline consistency checks, and multi-claim synthesis.
+- **Stage 7 — Multimodal Unified Verification Platform**: Integrated intelligence combining text, URL, image, and video across a unified analysis interface.
+
 
 ---
 
@@ -88,6 +90,37 @@ EXPLAINABLE AUDIT TRAIL PERSISTED TO USER AUDIT HISTORY
 
 ---
 
+## Image Verification Pipeline (Stage 5)
+
+1. **In-Memory Upload & Binary Security**:
+   - Memory storage via `multer.memoryStorage()` (no disk temporary files or execution risks).
+   - Magic byte validation for JPEG (`FF D8 FF`), PNG (`89 50 4E 47`), and WEBP (`RIFF....WEBP`).
+   - Disguised executables (DOS/PE `MZ`, ELF `\x7fELF`, script tags) are blocked regardless of extension.
+   - Decompression bomb protection: max dimensions of 10,000px and max resolution of 40 megapixels.
+   - Path traversal sanitization on original filenames.
+2. **Forensic Metadata & Privacy Shield**:
+   - Camera model, lens metadata, software, and capture timestamp extraction.
+   - **GPS Privacy Shield**: Coarse `hasLocationData: boolean` flag detected from EXIF geolocation tags. **Raw GPS coordinates (lat/long/alt) are strictly scrubbed** to protect user privacy.
+3. **Multimodal Visual Analysis & OCR**:
+   - Gemini Vision multimodal integration via base64 inline data buffers.
+   - Strict separation between `OBSERVED` objective visual facts and `INFERRED` contextual hypotheses.
+   - Embedded OCR text extraction for memes, screenshots, placards, and documents.
+   - Scene classification (`MEME_SCREENSHOT`, `NEWS_EDITORIAL`, `DOCUMENT`, `SOCIAL_MEDIA`, `PHOTO_SCENE`).
+4. **Claim Prioritization & Source Tagging**:
+   - Extracts up to 4 verifiable claims tagged by origin: `IMAGE_VISUAL`, `IMAGE_TEXT`, `USER_CONTEXT`.
+   - Weighted by priority: `PRIMARY` (1.0), `SUPPORTING` (0.5), `MINOR` (0.25).
+5. **Context Recycling Analysis**:
+   - Evaluates whether authentic imagery has been repurposed with false dates, events, or locations.
+   - Context consistency rating: `CONSISTENT`, `MISMATCH`, or `INCONCLUSIVE`.
+6. **Deterministic Scoring & Veto Rules**:
+   - Weighted average of claim trust scores.
+   - Deductions for context mismatch ($-25$), uncorroborated user context ($-10$), and visual manipulation ($-15$ or $-7$).
+   - **Primary Claim Veto Rule**: A contradicted `PRIMARY` claim or context `MISMATCH` strictly forbids a `LEGIT` verdict.
+7. **Transparent Forensic Limitations**:
+   - Explicitly notes when direct reverse-image indexing is unavailable, clarifying that claims and context were verified against independent web evidence.
+
+---
+
 ## Prerequisites
 
 Before running TrustLens locally, ensure the following are installed:
@@ -153,7 +186,7 @@ npm run dev:client
 # Type-check all packages (shared, server, client)
 npm run typecheck
 
-# Run full test suite (39 comprehensive unit, security & integration tests)
+# Run full test suite (54 comprehensive unit, security & integration tests)
 npm test
 
 # Build all packages for production
@@ -168,7 +201,7 @@ npm run build
 trustlens/
 ├── client/                     # Frontend (React 18, Vite, Tailwind CSS, Lucide icons)
 │   ├── src/
-│   │   ├── components/         # Reusable UI & Verifiers (UrlVerifier, TextVerifier)
+│   │   ├── components/         # Reusable UI & Verifiers (TextVerifier, UrlVerifier, ImageVerifier)
 │   │   ├── context/            # AuthContext (session state, user rehydration)
 │   │   ├── pages/              # LandingPage, LoginPage, RegisterPage, DashboardPage, HistoryPage
 │   │   └── services/           # API client layer with Bearer credentials
@@ -176,17 +209,20 @@ trustlens/
 │   ├── prisma/
 │   │   └── schema.prisma       # PostgreSQL schema (User, VerificationHistory)
 │   └── src/
+│       ├── middleware/         # Security, rate limiting, and multer upload middleware
 │       ├── services/
-│       │   ├── ai/             # Provider abstraction (Gemini, Groq)
+│       │   ├── ai/             # Provider abstraction (Gemini with Multimodal, Groq)
 │       │   ├── text/           # Text claim extraction & verification
 │       │   ├── evidence/       # Grounded web evidence retrieval
 │       │   ├── contradiction/  # Stance classification & contradiction detection
 │       │   ├── scoring/        # Deterministic trust scoring
 │       │   └── verification/
-│       │       └── url/        # Stage 4 URL verification subsystem
+│       │       ├── url/        # Stage 4 URL verification subsystem
+│       │       ├── image/      # Stage 5 Image verification subsystem
+│       │       └── verification-history.service.ts # Audit history persistence
 ├── shared/                     # Shared TypeScript interfaces across client and server
 ├── docs/                       # Architecture, Database, Authentication & Roadmap specifications
-├── test-suite.ts               # End-to-end verification and security test suite
+├── test-suite.ts               # End-to-end verification and security test suite (54 tests)
 ├── package.json                # Monorepo workspaces root configuration
 └── README.md
 ```

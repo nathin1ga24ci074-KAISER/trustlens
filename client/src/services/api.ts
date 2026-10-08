@@ -5,6 +5,7 @@ import {
   User,
   TextVerificationResult,
   UrlVerificationResult,
+  ImageVerificationResult,
   VerificationHistoryItem,
 } from '@trustlens/shared';
 
@@ -145,9 +146,36 @@ class ApiService {
     });
   }
 
+  async verifyImage(formData: FormData): Promise<{ success: boolean; data: ImageVerificationResult }> {
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/verify/image`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const message = data.message || `Request failed with status ${response.status}`;
+      const error: any = new Error(message);
+      error.status = response.status;
+      error.errorCode = data.errorCode;
+      error.errors = data.errors;
+      throw error;
+    }
+
+    return data;
+  }
+
   async getVerification(
     id: string
-  ): Promise<{ success: boolean; data: TextVerificationResult | UrlVerificationResult }> {
+  ): Promise<{ success: boolean; data: TextVerificationResult | UrlVerificationResult | ImageVerificationResult }> {
     return this.request(`/verify/${id}`, {
       method: 'GET',
     });

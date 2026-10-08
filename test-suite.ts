@@ -47,6 +47,12 @@ import {
   demoReelsService,
   VideoSecurityError,
 } from './server/src/services/verification/video';
+import {
+  claimFusionService,
+  crossModalConsistencyService,
+  multimodalScoringService,
+  multimodalVerificationService,
+} from './server/src/services/verification/multimodal';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -54,6 +60,8 @@ import {
   UrlClaimVerificationResult,
   ImageClaimVerificationResult,
   VideoClaimVerificationResult,
+  UnifiedClaim,
+  CrossModalConsistencyAnalysis,
 } from '@trustlens/shared';
 
 
@@ -2193,6 +2201,368 @@ async function runTests() {
         'Live Gemini Multimodal Video Verification Integration Check',
         true,
         'Skipped live multimodal call: GEMINI_API_KEY is not set in local environment. Deterministic offline pipeline verified.'
+      );
+    }
+
+    // -----------------------------------------------------------------
+    // 16. MULTIMODAL CLAIM FUSION & UNIFIED WORKSPACE TESTS
+    // -----------------------------------------------------------------
+    console.log('\n--- 16. Multimodal Claim Fusion & Unified Workspace Tests ---');
+
+    // 16.1 Multimodal Claim Fusion & Deduplication
+    {
+      const mockEvidenceA: EvidenceItem = {
+        id: 'ev-1',
+        url: 'https://nasa.gov/jwst-release',
+        title: 'NASA JWST Discovery',
+        publisher: 'NASA',
+        domain: 'nasa.gov',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'JWST discovers earliest galaxy',
+        sourceType: 'OFFICIAL',
+        stance: 'SUPPORTS',
+      };
+
+      const mockEvidenceB: EvidenceItem = {
+        id: 'ev-2',
+        url: 'https://esa.int/jwst',
+        title: 'ESA JWST Update',
+        publisher: 'ESA',
+        domain: 'esa.int',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'ESA confirms galaxy discovery',
+        sourceType: 'OFFICIAL',
+        stance: 'SUPPORTS',
+      };
+
+      const textRes: any = {
+        claim: 'James Webb Space Telescope observed the earliest confirmed galaxy in the universe',
+        claimType: 'EMPIRICAL_FACT',
+        verdict: 'LEGIT',
+        trustScore: 92,
+        confidence: 'HIGH',
+        supportingEvidence: [mockEvidenceA],
+        contradictingEvidence: [],
+        neutralEvidence: [],
+        searchQueries: ['JWST earliest galaxy'],
+        scoreBreakdown: { overallScore: 92 },
+      };
+
+      const urlRes: any = {
+        claims: [
+          {
+            claimId: 'url-c1',
+            claim: 'James Webb Space Telescope observed earliest confirmed galaxy in universe',
+            claimType: 'EMPIRICAL_FACT',
+            importance: 'PRIMARY',
+            verdict: 'LEGIT',
+            trustScore: 90,
+            confidence: 'HIGH',
+            supportingEvidence: [mockEvidenceB],
+            contradictingEvidence: [],
+            neutralEvidence: [],
+            searchQueries: ['JWST universe galaxy'],
+          },
+        ],
+      };
+
+      const fused = claimFusionService.fuseClaims({
+        textResult: textRes,
+        urlResult: urlRes,
+      });
+
+      const pass =
+        fused.length === 1 &&
+        fused[0].sources.includes('TEXT') &&
+        fused[0].sources.includes('URL') &&
+        fused[0].supportingEvidence.length === 2 &&
+        fused[0].importance === 'PRIMARY' &&
+        fused[0].verdict === 'LEGIT';
+
+      record(
+        'Multimodal Claim Fusion & Cross-Modal Deduplication',
+        pass,
+        `Fused Count: ${fused.length} (Expected 1), Sources: ${fused[0]?.sources.join(' + ')}, Evidence Count: ${fused[0]?.supportingEvidence.length}`
+      );
+    }
+
+    // 16.2 Conservative Verdict Retention during Claim Fusion
+    {
+      const fakeClaimA: any = {
+        claim: 'Major earthquake magnitude 9.0 struck Los Angeles today causing widespread structural damage',
+        verdict: 'FAKE',
+        trustScore: 15,
+        confidence: 'HIGH',
+        supportingEvidence: [],
+        contradictingEvidence: [],
+        neutralEvidence: [],
+      };
+
+      const inconclusiveClaimB: any = {
+        claim: 'Earthquake magnitude 9.0 struck Los Angeles today causing structural damage',
+        verdict: 'INCONCLUSIVE',
+        trustScore: 45,
+        confidence: 'LOW',
+        supportingEvidence: [],
+        contradictingEvidence: [],
+        neutralEvidence: [],
+      };
+
+      const fused = claimFusionService.fuseClaims({
+        textResult: fakeClaimA,
+        urlResult: { claims: [inconclusiveClaimB] } as any,
+      });
+
+      const pass =
+        fused.length === 1 &&
+        fused[0].verdict === 'FAKE' &&
+        fused[0].trustScore <= 20;
+
+      record(
+        'Conservative Verdict Retention in Multimodal Claim Fusion',
+        pass,
+        `Fused Verdict: ${fused[0]?.verdict} (Expected FAKE), Trust Score: ${fused[0]?.trustScore}`
+      );
+    }
+
+    // 16.3 Cross-Modal Temporal & Spatio-Temporal Inconsistency Detection
+    {
+      const textResultWithDate: any = {
+        claim: 'Wildfire in Maui in August 2024 destroyed historic town',
+        timeContext: 'August 2024',
+        locationContext: 'Maui, Hawaii',
+      };
+
+      const videoResultHistorical: any = {
+        contextAnalysis: {
+          verdict: 'MISMATCH',
+          claimedDate: '2018',
+          explanation: 'Footage from 2018 used for 2024 claim',
+        },
+        temporalAnalysis: {
+          verdict: 'TEMPORAL_INCONSISTENT',
+          details: 'Footage recorded in 2018',
+        },
+        claims: [
+          {
+            claim: 'Wildfire incident footage recorded in 2018',
+            dateContext: '2018',
+            locationContext: 'California',
+          },
+        ],
+      };
+
+      const consistency = await crossModalConsistencyService.analyzeConsistency({
+        textResult: textResultWithDate,
+        videoResult: videoResultHistorical,
+        userContextText: 'Wildfire in Maui in August 2024',
+      });
+
+      const hasConflict =
+        consistency.verdict === 'INCONSISTENT' &&
+        consistency.conflicts.length > 0 &&
+        consistency.conflicts.some((c) => c.type === 'DATE_MISMATCH' || c.type === 'LOCATION_MISMATCH');
+
+      record(
+        'Cross-Modal Temporal & Spatio-Temporal Conflict Detection',
+        hasConflict,
+        `Verdict: ${consistency.verdict}, Conflict Count: ${consistency.conflicts.length}, Type: ${consistency.conflicts[0]?.type}`
+      );
+    }
+
+    // 16.4 Deterministic Multimodal Scoring & Primary Claim Veto Rule
+    {
+      const primaryFakeClaim: UnifiedClaim = {
+        claimId: 'claim-fake-1',
+        claim: 'Fabricated medical claim that cures all diseases immediately',
+        claimType: 'EMPIRICAL_FACT',
+        importance: 'PRIMARY',
+        sources: ['TEXT', 'VIDEO_AUDIO'],
+        observationalStatus: 'OBSERVED',
+        entities: ['Medical'],
+        verdict: 'FAKE',
+        trustScore: 10,
+        confidence: 'HIGH',
+        supportingEvidence: [],
+        contradictingEvidence: [],
+        neutralEvidence: [],
+        contradictions: {
+          hasContradiction: true,
+          severity: 'SEVERE',
+          details: 'Directly contradicted by medical consensus',
+          conflictingAspects: [],
+        },
+        searchQueries: ['cure all diseases'],
+        provenance: [],
+      };
+
+      const secondaryLegitClaim: UnifiedClaim = {
+        claimId: 'claim-legit-2',
+        claim: 'Clinical trials require FDA protocol approval',
+        claimType: 'EMPIRICAL_FACT',
+        importance: 'SUPPORTING',
+        sources: ['URL'],
+        observationalStatus: 'OBSERVED',
+        entities: ['FDA'],
+        verdict: 'LEGIT',
+        trustScore: 95,
+        confidence: 'HIGH',
+        supportingEvidence: [],
+        contradictingEvidence: [],
+        neutralEvidence: [],
+        contradictions: {
+          hasContradiction: false,
+          severity: 'NONE',
+          details: 'No conflict',
+          conflictingAspects: [],
+        },
+        searchQueries: ['FDA trial protocols'],
+        provenance: [],
+      };
+
+      const consistencyAnalysis: CrossModalConsistencyAnalysis = {
+        verdict: 'CONSISTENT',
+        details: 'Internal alignment',
+        conflicts: [],
+      };
+
+      const evaluation = multimodalScoringService.evaluate(
+        [primaryFakeClaim, secondaryLegitClaim],
+        consistencyAnalysis
+      );
+
+      const pass =
+        evaluation.verdict === 'FAKE' &&
+        evaluation.trustScore <= 35 &&
+        evaluation.scoreBreakdown.vetoTriggered === true;
+
+      record(
+        'Deterministic Multimodal Scoring & Primary Claim Veto Rule',
+        pass,
+        `Overall Verdict: ${evaluation.verdict} (Expected FAKE), Trust Score: ${evaluation.trustScore}, Veto: ${evaluation.scoreBreakdown.vetoTriggered}`
+      );
+    }
+
+    // 16.5 Multimodal HTTP API: Unauthorized Rejection
+    {
+      const res = await fetch(`${BASE}/verify/multimodal`, {
+        method: 'POST',
+      });
+      record(
+        'Multimodal HTTP API: Unauthorized Rejection (POST /api/verify/multimodal)',
+        res.status === 401,
+        `Status: ${res.status}`
+      );
+    }
+
+    // 16.6 Multimodal HTTP API: Empty Input Rejection
+    {
+      const emptyForm = new FormData();
+      const res = await fetch(`${BASE}/verify/multimodal`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${user1Token}`,
+        },
+        body: emptyForm,
+      });
+      const body = await res.json();
+      record(
+        'Multimodal HTTP API: Empty Input Rejection (400 Bad Request)',
+        res.status === 400 && body.errorCode === 'NO_INPUT_PROVIDED',
+        `Status: ${res.status}, ErrorCode: ${body.errorCode}`
+      );
+    }
+
+    // 16.7 Multimodal HTTP API: End-to-End Multimodal Execution
+    let createdMultimodalVerificationId = '';
+    {
+      const multiForm = new FormData();
+      multiForm.append('text', 'Apollo 11 lunar landing took place in July 1969 with astronauts Neil Armstrong and Buzz Aldrin');
+      multiForm.append('demoId', 'moon-landing');
+
+      const res = await fetch(`${BASE}/verify/multimodal`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${user1Token}`,
+        },
+        body: multiForm,
+      });
+
+      const body = await res.json();
+      const pass =
+        res.status === 200 &&
+        body.success === true &&
+        Boolean(body.data?.verificationId) &&
+        body.data?.inputType === 'MULTIMODAL' &&
+        ['LEGIT', 'INCONCLUSIVE', 'FAKE'].includes(body.data?.overallVerdict) &&
+        typeof body.data?.trustScore === 'number' &&
+        Array.isArray(body.data?.claims) &&
+        Boolean(body.data?.crossModalConsistency) &&
+        Boolean(body.data?.inputsProvided?.hasVideo) &&
+        body.data?.inputsProvided?.text !== null;
+
+      createdMultimodalVerificationId = body.data?.verificationId || '';
+
+      record(
+        'Multimodal HTTP API: End-to-End Verification Pipeline Execution',
+        pass,
+        `Status: ${res.status}, ID: ${body.data?.verificationId}, Verdict: ${body.data?.overallVerdict}, Trust Score: ${body.data?.trustScore}, Fused Claims: ${body.data?.claims?.length}`
+      );
+    }
+
+    // 16.8 Multimodal Strict User Isolation & History Ownership Guard
+    {
+      const resUser1 = await fetch(`${BASE}/verify/history`, {
+        headers: { Authorization: `Bearer ${user1Token}` },
+      });
+      const bodyUser1 = await resUser1.json();
+      const user1HasMultiRecord =
+        Array.isArray(bodyUser1.data) &&
+        bodyUser1.data.some((r: any) => r.id === createdMultimodalVerificationId && r.type === 'MULTIMODAL');
+
+      const resUser2 = await fetch(`${BASE}/verify/history`, {
+        headers: { Authorization: `Bearer ${user2Token}` },
+      });
+      const bodyUser2 = await resUser2.json();
+      const user2Empty = Array.isArray(bodyUser2.data) && bodyUser2.data.length === 0;
+
+      record(
+        'Multimodal Strict User Isolation & Ownership Guard',
+        resUser1.status === 200 && user1HasMultiRecord && resUser2.status === 200 && user2Empty,
+        `User 1 has Multimodal Record: ${user1HasMultiRecord}, User 2 Items: ${bodyUser2.data?.length}`
+      );
+    }
+
+    // 16.9 Multimodal Cross-User Verification Access Guard (404 Not Found)
+    {
+      const res = await fetch(`${BASE}/verify/${createdMultimodalVerificationId}`, {
+        headers: { Authorization: `Bearer ${user2Token}` },
+      });
+      record(
+        'Multimodal Cross-User Verification Access Guard (404 Not Found)',
+        res.status === 404,
+        `Status: ${res.status}`
+      );
+    }
+
+    // 16.10 Authorized Owner Retrieval of Full Multimodal Verification Record
+    {
+      const res = await fetch(`${BASE}/verify/${createdMultimodalVerificationId}`, {
+        headers: { Authorization: `Bearer ${user1Token}` },
+      });
+      const body = await res.json();
+      const pass =
+        res.status === 200 &&
+        body.data?.verificationId === createdMultimodalVerificationId &&
+        body.data?.inputType === 'MULTIMODAL' &&
+        Array.isArray(body.data?.claims) &&
+        Boolean(body.data?.crossModalConsistency) &&
+        Boolean(body.data?.modalityResults);
+
+      record(
+        'Authorized Owner Retrieval of Complete Multimodal Record',
+        pass,
+        `Verification ID matched: ${body.data?.verificationId}, Modalities: ${Object.keys(body.data?.modalityResults || {}).join(', ')}`
       );
     }
 

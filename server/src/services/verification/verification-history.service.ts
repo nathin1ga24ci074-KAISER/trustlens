@@ -3,6 +3,8 @@ import {
   UrlVerificationResult,
   ImageVerificationResult,
   VideoVerificationResult,
+  MultimodalVerificationResult,
+  UnifiedVerificationResult,
   VerificationHistoryItem,
 } from '@trustlens/shared';
 import { prisma, isDbConnected } from '../../config/db';
@@ -11,7 +13,7 @@ import crypto from 'crypto';
 interface StoredVerificationRecord {
   id: string;
   userId: string;
-  type: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO';
+  type: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' | 'MULTIMODAL';
   originalInput: string;
   extractedClaim: string;
   verdict: any;
@@ -29,19 +31,24 @@ const memoryVerifications = new Map<string, StoredVerificationRecord>();
 
 class VerificationHistoryService {
   /**
-   * Save a completed verification (TEXT, URL, IMAGE, or VIDEO) to the database associated with the user
+   * Save a completed verification (TEXT, URL, IMAGE, VIDEO, or MULTIMODAL) to the database associated with the user
    */
   async saveVerification(
     userId: string,
-    result: TextVerificationResult | UrlVerificationResult | ImageVerificationResult | VideoVerificationResult,
-    type: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' = 'TEXT'
+    result: UnifiedVerificationResult,
+    type: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' | 'MULTIMODAL' = 'TEXT'
   ): Promise<string> {
+    const isMultimodal = type === 'MULTIMODAL' || (result as any).inputType === 'MULTIMODAL';
     const isVideo = type === 'VIDEO' || (result as any).inputType === 'VIDEO';
     const isImage = type === 'IMAGE' || (result as any).inputType === 'IMAGE';
     const isUrl = type === 'URL' || 'inputUrl' in result;
     const confidenceToScore = result.confidence === 'HIGH' ? 0.9 : result.confidence === 'MEDIUM' ? 0.6 : 0.3;
 
-    const originalInput = isVideo
+    const originalInput = isMultimodal
+      ? (result as MultimodalVerificationResult).inputsProvided?.text ||
+        (result as MultimodalVerificationResult).inputsProvided?.url ||
+        'Multimodal Input'
+      : isVideo
       ? (result as VideoVerificationResult).userContext || (result as VideoVerificationResult).summary || 'Uploaded Video'
       : isImage
       ? (result as ImageVerificationResult).userContext || 'Uploaded Image'
@@ -49,7 +56,11 @@ class VerificationHistoryService {
       ? (result as UrlVerificationResult).inputUrl
       : (result as TextVerificationResult).input;
 
-    const extractedClaim = isVideo
+    const extractedClaim = isMultimodal
+      ? (result as MultimodalVerificationResult).claims[0]?.claim ||
+        (result as MultimodalVerificationResult).summary?.slice(0, 100) ||
+        'Multimodal Claim Fusion'
+      : isVideo
       ? (result as VideoVerificationResult).claims[0]?.claim ||
         (result as VideoVerificationResult).summary?.slice(0, 100) ||
         'Video Verification'
@@ -61,7 +72,9 @@ class VerificationHistoryService {
       ? (result as UrlVerificationResult).page.title
       : (result as TextVerificationResult).claim;
 
-    const verdict = isVideo
+    const verdict = isMultimodal
+      ? (result as MultimodalVerificationResult).overallVerdict || (result as MultimodalVerificationResult).verdict
+      : isVideo
       ? (result as VideoVerificationResult).overallVerdict || (result as VideoVerificationResult).verdict
       : isImage
       ? (result as ImageVerificationResult).overallVerdict
@@ -69,15 +82,13 @@ class VerificationHistoryService {
       ? (result as UrlVerificationResult).overallVerdict
       : (result as TextVerificationResult).verdict;
 
-    const uncertaintyScore = isVideo
-      ? 0.2
-      : isImage
-      ? 0.2
-      : isUrl
+    const uncertaintyScore = isMultimodal || isVideo || isImage || isUrl
       ? 0.2
       : Math.max(0, Math.min(1, ((result as TextVerificationResult).scoreBreakdown?.uncertaintyPenalty || 0) / 100));
 
-    const recordType: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' = isVideo
+    const recordType: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' | 'MULTIMODAL' = isMultimodal
+      ? 'MULTIMODAL'
+      : isVideo
       ? 'VIDEO'
       : isImage
       ? 'IMAGE'
@@ -134,7 +145,7 @@ class VerificationHistoryService {
   async getVerificationById(
     id: string,
     userId: string
-  ): Promise<TextVerificationResult | UrlVerificationResult | ImageVerificationResult | VideoVerificationResult | null> {
+  ): Promise<UnifiedVerificationResult | null> {
     if (isDbConnected()) {
       try {
         const record = await prisma.verificationHistory.findUnique({
@@ -147,11 +158,7 @@ class VerificationHistoryService {
         }
 
         if (record.metadata && typeof record.metadata === 'object') {
-          return record.metadata as unknown as
-            | TextVerificationResult
-            | UrlVerificationResult
-            | ImageVerificationResult
-            | VideoVerificationResult;
+          return record.metadata as unknown as UnifiedVerificationResult;
         }
 
         return this.mapRecordToResult(record);
@@ -166,11 +173,7 @@ class VerificationHistoryService {
     }
 
     return (
-      (mem.metadata as
-        | TextVerificationResult
-        | UrlVerificationResult
-        | ImageVerificationResult
-        | VideoVerificationResult) || this.mapRecordToResult(mem)
+      (mem.metadata as UnifiedVerificationResult) || this.mapRecordToResult(mem)
     );
   }
 

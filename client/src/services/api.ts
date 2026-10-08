@@ -7,6 +7,8 @@ import {
   UrlVerificationResult,
   ImageVerificationResult,
   VideoVerificationResult,
+  MultimodalVerificationResult,
+  UnifiedVerificationResult,
   DemoReelItem,
   VerificationHistoryItem,
 } from '@trustlens/shared';
@@ -204,6 +206,34 @@ class ApiService {
     return data;
   }
 
+  async verifyMultimodal(formData: FormData): Promise<{ success: boolean; data: MultimodalVerificationResult }> {
+    const headers: Record<string, string> = {};
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/verify/multimodal`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const message = data.message || `Request failed with status ${response.status}`;
+      const error: any = new Error(message);
+      error.status = response.status;
+      error.errorCode = data.errorCode;
+      error.errors = data.errors;
+      throw error;
+    }
+
+    return data;
+  }
+
   async getDemoReels(): Promise<{ success: boolean; data: DemoReelItem[] }> {
     return this.request('/verify/video/demo-reels', {
       method: 'GET',
@@ -212,7 +242,7 @@ class ApiService {
 
   async getVerification(
     id: string
-  ): Promise<{ success: boolean; data: TextVerificationResult | UrlVerificationResult | ImageVerificationResult | VideoVerificationResult }> {
+  ): Promise<{ success: boolean; data: UnifiedVerificationResult }> {
     return this.request(`/verify/${id}`, {
       method: 'GET',
     });

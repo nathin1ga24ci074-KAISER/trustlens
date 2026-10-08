@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { verificationController } from '../controllers/verification.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { validateBody, verifyTextSchema, verifyUrlSchema } from '../middleware/validate.middleware';
-import { imageUploadMiddleware, videoUploadMiddleware } from '../middleware/upload.middleware';
+import { imageUploadMiddleware, videoUploadMiddleware, multimodalUploadMiddleware } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -11,6 +11,7 @@ router.post('/text', requireAuth, validateBody(verifyTextSchema), verificationCo
 router.post('/url', requireAuth, validateBody(verifyUrlSchema), verificationController.verifyUrl.bind(verificationController));
 router.post('/image', requireAuth, imageUploadMiddleware, verificationController.verifyImage.bind(verificationController));
 router.post('/video', requireAuth, videoUploadMiddleware, verificationController.verifyVideo.bind(verificationController));
+router.post('/multimodal', requireAuth, multimodalUploadMiddleware, verificationController.verifyMultimodal.bind(verificationController));
 router.get('/video/demo-reels', requireAuth, verificationController.getDemoReels.bind(verificationController));
 router.get('/history', requireAuth, verificationController.listHistory.bind(verificationController));
 router.get('/:id', requireAuth, verificationController.getById.bind(verificationController));

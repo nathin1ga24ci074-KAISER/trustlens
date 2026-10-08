@@ -179,6 +179,11 @@ export class VideoSecurityService {
   cleanupTempFiles(paths: (string | undefined | null)[]): void {
     for (const p of paths) {
       if (!p) continue;
+      // Never delete bundled permanent demo videos
+      const normalized = p.replace(/\\/g, '/');
+      if (normalized.includes('/demo-videos/')) {
+        continue;
+      }
       try {
         if (fs.existsSync(p)) {
           fs.unlinkSync(p);

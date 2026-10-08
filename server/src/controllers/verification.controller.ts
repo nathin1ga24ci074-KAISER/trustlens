@@ -12,6 +12,7 @@ import {
   demoReelsService,
   VideoSecurityError,
 } from '../services/verification/video';
+import { multimodalVerificationService } from '../services/verification/multimodal';
 import { verificationHistoryService } from '../services/verification/verification-history.service';
 
 export class VerificationController {
@@ -242,6 +243,74 @@ export class VerificationController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/verify/multimodal
+   * Executes unified multimodal verification across any combination of text, URL, image, and video
+   */
+  async verifyMultimodal(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Authentication required' });
+        return;
+      }
+
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+      const text = typeof req.body?.text === 'string' ? req.body.text.trim() : undefined;
+      const url = typeof req.body?.url === 'string' ? req.body.url.trim() : undefined;
+      const demoId = typeof req.body?.demoId === 'string' ? req.body.demoId.trim() : undefined;
+
+      const imageFileItem = files?.['image']?.[0];
+      const videoFileItem = files?.['video']?.[0];
+
+      let imageFile: { buffer: Buffer; originalFilename: string; mimeType: string } | undefined;
+      if (imageFileItem) {
+        const buffer = fs.readFileSync(imageFileItem.path);
+        imageFile = {
+          buffer,
+          originalFilename: imageFileItem.originalname,
+          mimeType: imageFileItem.mimetype || 'image/jpeg',
+        };
+        try { fs.unlinkSync(imageFileItem.path); } catch {}
+      }
+
+      let videoFile: { filePath: string; originalFilename: string; mimeType?: string; sizeBytes: number } | undefined;
+      if (videoFileItem) {
+        videoFile = {
+          filePath: videoFileItem.path,
+          originalFilename: videoFileItem.originalname,
+          mimeType: videoFileItem.mimetype,
+          sizeBytes: videoFileItem.size,
+        };
+      }
+
+      if (!text && !url && !imageFile && !videoFile && !demoId) {
+        res.status(400).json({
+          success: false,
+          errorCode: 'NO_INPUT_PROVIDED',
+          message: 'At least one input modality (text, url, image, video, or demoId) must be provided.',
+        });
+        return;
+      }
+
+      const result = await multimodalVerificationService.verifyMultimodal({
+        text,
+        url,
+        imageFile,
+        videoFile,
+        demoId,
+        userId: req.user.id,
+      });
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
 
   /**

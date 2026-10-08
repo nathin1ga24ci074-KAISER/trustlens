@@ -77,3 +77,38 @@ export const videoUploadMiddleware = (req: Request, res: Response, next: NextFun
     next();
   });
 };
+
+// Multimodal composite upload supporting optional image and video fields
+const multimodalUpload = multer({
+  storage: videoStorage,
+  limits: {
+    fileSize: env.VIDEO_MAX_SIZE_MB * 1024 * 1024,
+    files: 2,
+  },
+});
+
+export const multimodalUploadMiddleware = (req: Request, res: Response, next: NextFunction): void => {
+  multimodalUpload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'video', maxCount: 1 },
+  ])(req, res, (err: any) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({
+          success: false,
+          errorCode: 'FILE_TOO_LARGE',
+          message: `Uploaded file exceeds maximum allowable limit of ${env.VIDEO_MAX_SIZE_MB}MB.`,
+        });
+        return;
+      }
+      res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_UPLOAD',
+        message: err.message || 'Error occurred during multimodal upload processing.',
+      });
+      return;
+    }
+    next();
+  });
+};
+

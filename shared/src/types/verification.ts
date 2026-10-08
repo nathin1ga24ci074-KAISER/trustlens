@@ -1,4 +1,4 @@
-export type VerificationType = 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO';
+export type VerificationType = 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' | 'MULTIMODAL';
 
 export type PrimaryVerdict = 'LEGIT' | 'INCONCLUSIVE' | 'FAKE';
 
@@ -502,4 +502,116 @@ export interface DemoReelItem {
   thumbnailUrl?: string;
   sourceFilename?: string;
 }
+
+// -------------------------------------------------------------
+// STAGE 7 UNIFIED & MULTIMODAL TYPES
+// -------------------------------------------------------------
+
+export type CrossModalConsistencyVerdict = 'CONSISTENT' | 'INCONSISTENT' | 'INCONCLUSIVE';
+
+export interface CrossModalConflict {
+  type: 'LOCATION_MISMATCH' | 'DATE_MISMATCH' | 'EVENT_MISMATCH' | 'NARRATIVE_CONTRADICTION';
+  description: string;
+  modalitiesInvolved: ('TEXT' | 'URL' | 'IMAGE' | 'VIDEO')[];
+  severity: 'MINOR' | 'MODERATE' | 'SEVERE';
+}
+
+export interface CrossModalConsistencyAnalysis {
+  verdict: CrossModalConsistencyVerdict;
+  details: string;
+  conflicts: CrossModalConflict[];
+}
+
+export type UnifiedClaimSource =
+  | 'TEXT'
+  | 'URL'
+  | 'USER_TEXT'
+  | 'URL_TEXT'
+  | 'IMAGE_VISUAL'
+  | 'IMAGE_TEXT'
+  | 'VIDEO_AUDIO'
+  | 'VIDEO_VISUAL'
+  | 'VIDEO_TEXT'
+  | 'USER_CONTEXT'
+  | 'MULTIMODAL_SYNTHESIS';
+
+export interface UnifiedClaim {
+  claimId: string;
+  claim: string;
+  sources: UnifiedClaimSource[];
+  claimType: ClaimType;
+  importance: ClaimImportance;
+  entities: string[];
+  verdict: PrimaryVerdict;
+  trustScore: number;
+  confidence: ConfidenceLevel;
+  observedAspects?: string[];
+  inferredAspects?: string[];
+  timestamps?: number[];
+  supportingEvidence: EvidenceItem[];
+  contradictingEvidence: EvidenceItem[];
+  neutralEvidence: EvidenceItem[];
+  contradictions: ContradictionAnalysisResult;
+  provenance: Array<{
+    source: string;
+    domain: string;
+    relationship?: string;
+  }>;
+}
+
+export interface MultimodalInputsProvided {
+  text?: string | null;
+  url?: string | null;
+  hasImage: boolean;
+  hasVideo: boolean;
+  demoId?: string | null;
+  imageFilename?: string | null;
+  videoFilename?: string | null;
+}
+
+export interface MultimodalVerificationResult {
+  verificationId: string;
+  inputType: 'MULTIMODAL';
+  inputsProvided: MultimodalInputsProvided;
+  overallVerdict: PrimaryVerdict;
+  verdict: PrimaryVerdict;
+  trustScore: number;
+  confidence: ConfidenceLevel;
+  summary: string;
+  reasoning: string;
+  claims: UnifiedClaim[];
+  supportingEvidence: EvidenceItem[];
+  contradictingEvidence: EvidenceItem[];
+  neutralEvidence: EvidenceItem[];
+  contradictions: ContradictionAnalysisResult[];
+  crossModalConsistency: CrossModalConsistencyAnalysis;
+  provenance: Array<{
+    source: string;
+    domain: string;
+    relationship?: string;
+  }>;
+  limitations: string[];
+  createdAt: string;
+  modalityResults?: {
+    text?: TextVerificationResult;
+    url?: UrlVerificationResult;
+    image?: ImageVerificationResult;
+    video?: VideoVerificationResult;
+  };
+}
+
+export type UnifiedVerificationResult =
+  | TextVerificationResult
+  | UrlVerificationResult
+  | ImageVerificationResult
+  | VideoVerificationResult
+  | MultimodalVerificationResult;
+
+export interface VerifyMultimodalResponse {
+  success: boolean;
+  data?: MultimodalVerificationResult;
+  message?: string;
+  errorCode?: string;
+}
+
 

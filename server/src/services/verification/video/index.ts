@@ -7,5 +7,6 @@ export * from './video-claim-extractor';
 export * from './video-temporal.service';
 export * from './video-context.service';
 export * from './video-scoring.service';
+export * from './demo-reels.config';
 export * from './demo-reels.service';
 export * from './video-verification.service';

@@ -324,4 +324,58 @@ TrustLens explicitly surfaces forensic boundaries:
 TrustLens clearly communicates analytical boundaries:
 > *"Video verification evaluates factual claims, on-screen text, transcript fidelity, and contextual attribution against independent web evidence. It does not provide absolute cryptographic proof of raw camera sensor provenance or complete deepfake immunity."*
 
+---
+
+## 11. Unified Multimodal Verification Architecture (Stage 7)
+
+```
+                       USER INPUT
+    [ Text Claim ]  [ Webpage URL ]  [ Digital Image ]  [ Video Reel ]
+          |                 |                 |                |
+          v                 v                 v                v
+     Text Pipeline     URL Pipeline     Image Pipeline   Video Pipeline
+          |                 |                 |                |
+          ------------------------------------------------------
+                                    |
+                                    v
+                     MULTIMODAL CLAIM FUSION LAYER
+                     - Semantic Deduplication
+                     - Importance Weighting
+                     - Source Tagging (Text/URL/Visual/Audio)
+                     - Conservative Refutation Preservation
+                                    |
+                                    v
+                  CROSS-MODAL CONSISTENCY ANALYZER
+                  - Temporal Alignments (Date conflicts)
+                  - Spatial Grounding (Location mismatches)
+                  - Event Consistency Checks
+                  - Narrative Divergence Detection
+                                    |
+                                    v
+               INDEPENDENT WEB EVIDENCE GROUNDING & STANCE
+                                    |
+                                    v
+               DETERMINISTIC MULTIMODAL TRUST SCORING
+               - Primary Claim Veto Rule
+               - Cross-Modal Collision Penalty (-15 / -7)
+               - Calibrated 0-100 Trust Score
+                                    |
+                                    v
+                     UNIFIED EXPLAINABLE VERDICT
+                   [ LEGIT | INCONCLUSIVE | FAKE ]
+```
+
+### Multimodal Core Modules:
+1. **Multimodal Claim Fusion (`ClaimFusionService`)**:
+   Combines empirical claims across text, URL, visual scene understanding, OCR text, and speech-to-text transcripts. Applies word overlap and entity matching to fuse duplicate statements into unified claims with multiple source tags (`['TEXT', 'URL']`), strictly preventing artificial double-counting of repeated claims while preserving conservative refutations.
+2. **Cross-Modal Consistency Engine (`CrossModalConsistencyService`)**:
+   Validates internal synchronization between user-supplied context, text, images, and videos (e.g. detecting if footage from a 2018 event is claimed in text to be from 2024).
+3. **Deterministic Multimodal Scoring (`MultimodalScoringService`)**:
+   Synthesizes importance-weighted claim scores, applies explicit penalties for cross-modal conflict ($-15$ deduction for `INCONSISTENT`), and enforces the absolute Primary Claim Veto Rule.
+4. **Decoupled Demo Reels Configuration (`demo-reels.config.ts`)**:
+   Extracts demo reel asset descriptors into a decoupled configuration array (`DEMO_REELS_CONFIG`) to ensure the user's final 10 real demo videos can be plugged in seamlessly when provided.
+5. **Shared Verification Presentation Layer (`client/src/components/verification/common/`)**:
+   Standardized, reusable presentation components (`VerdictCard`, `ClaimsList`, `EvidenceTrail`, `ContradictionView`, `CrossModalConsistencyCard`, `ProvenanceView`, `UnifiedResultView`) guaranteeing identical rigor and audit transparency across all input modalities.
+
+
 

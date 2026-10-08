@@ -246,3 +246,82 @@ VERIFICATION SERVICES
 TrustLens explicitly surfaces forensic boundaries:
 > *"Direct reverse-image matching was not available; TrustLens verified the image's claims and context using independent web evidence."*
 
+---
+
+## 7. Video & Reel Verification Architecture (Stage 6)
+
+### 1. Ingestion, Disk Temp Storage & Security (`VideoSecurityService`)
+- **Disk Stream Processing**: Video uploads (up to 50MB, configurable via `VIDEO_MAX_SIZE_MB`) are streamed to secure local temp storage (`server/tmp/video-uploads/`) via `multer.diskStorage()`, avoiding 50MB memory buffer exhaustion in Node.js.
+- **Binary Magic Byte Inspection**:
+  - MP4 / QuickTime: ISO Base Media File header (`ftyp`, `moov`, `mdat`, `wide` atoms).
+  - WebM: Matroska EBML signature (`1A 45 DF A3`).
+  - MOV: QuickTime atoms.
+  - Executable binaries disguised with `.mp4` extensions (`MZ` PE headers, `\x7fELF`, script tags `#!`, `<script>`) are rejected with `400 Bad Request` (`VIDEO_INVALID_TYPE`).
+- **Sanitization & Guaranteed Cleanup**: Filenames are sanitized against path traversal (`..`, `/`, `\`). All temporary working video and extracted audio files are cleaned up synchronously in a `finally` block on both success and failure.
+
+### 2. Stream Probing & Keyframe Sampling (`VideoProcessingService`)
+- **FFmpeg Integration**: Probes duration, frame dimensions, framerate, video codecs (`h264`, `vp8`, `vp9`, `hevc`), and audio stream existence via `ffmpeg-static` with fallback to system PATH and internal container parsing.
+- **Safety Limits**: Enforces `VIDEO_MAX_DURATION_SECONDS` (default 120s), `VIDEO_MAX_WIDTH` (3840px), and `VIDEO_MAX_HEIGHT` (2160px).
+- **Keyframe Sampling**: Samples keyframes across the narrative arc (opening, early development, midpoint, late progression, conclusion) up to `VIDEO_MAX_FRAMES` (8 frames).
+- **Perceptual / Content Hash Deduplication**: Computes MD5 content hashes on raw frame data to avoid redundant visual evaluation of static frames.
+
+### 3. Audio Extraction & Speech Transcription (`VideoAudioService`)
+- **Audio Extraction**: Extracts audio streams to 16kHz mono 16-bit PCM WAV tracks.
+- **AI Speech Transcription**: Routes audio bytes to Gemini audio transcription (`inlineData` `audio/wav`), generating timestamped speech segments (`VideoTranscriptSegment[]`) and full narrative transcript.
+- **Graceful Handling of Silent Video**: Audio-less videos are flagged with `hasAudio: false` and empty transcripts without failing or fabricating speech.
+
+### 4. Multimodal Keyframe Analysis & OCR (`VideoAnalysisService`)
+- **Multimodal Vision Analysis**: Selected keyframes are analyzed using Gemini Vision models.
+- **Observed vs. Inferred Separation**: Strictly separates objective visual phenomena (`OBSERVED`) from speculative deductions (`INFERRED`).
+- **On-Screen OCR Extraction**: Extracts news tickers, lower-third overlays, banners, subtitles, placards, and watermarks with associated timestamps.
+- **Manipulation Signal Detection**: Detects editing anomalies, splice artifacts, unnatural speed alterations, and generative AI visual patterns.
+
+### 5. Multi-Source Claim Extraction (`VideoClaimExtractor`)
+- Formulates up to 5 empirical claims tagged by origin:
+  - `VIDEO_AUDIO`: Spoken statements from transcript.
+  - `VIDEO_VISUAL`: Empirical events and visual evidence depicted.
+  - `VIDEO_TEXT`: On-screen text, tickers, and placards.
+  - `USER_CONTEXT`: Hypothesis assertions supplied by the user.
+- Tags claims by importance (`PRIMARY: 1.0`, `SUPPORTING: 0.5`, `MINOR: 0.25`).
+
+### 6. Temporal Consistency Analysis (`VideoTemporalService`)
+- Analyzes chronological and narrative alignment across spoken audio, on-screen text, visual frames, and external factual evidence.
+- Detects narrative conflicts:
+  - `LOCATION_CONFLICT`: Dialogue claims one location while landmarks or signs depict another.
+  - `DATE_CONFLICT`: Spoken date contradicts visual evidence or independent reporting.
+  - `SEQUENCE_DISORDER`: Cause-and-effect narrative contradicted by visual sequence.
+  - `NARRATION_MISMATCH`: Spoken narration asserts events that do not occur visually.
+
+### 7. Context Recycling Evaluation (`VideoContextService`)
+- Evaluates whether authentic historical footage is weaponized with false dates, events, or locations (context recycling).
+- Labels context as:
+  - `CONSISTENT`: Video depicts the claimed event, date, and location.
+  - `MISMATCH`: Genuine archival footage recycled with misleading context attribution.
+  - `INCONCLUSIVE`: Insufficient web evidence to confirm or refute context assertions.
+
+### 8. Deterministic Video Trust Scoring (`VideoScoringService`)
+- **Base Score Calculation**:
+  $$\text{Base Score} = \frac{\sum (\text{Claim Score}_i \times \text{Weight}_i)}{\sum \text{Weight}_i}$$
+- **Deductions**:
+  - Context Mismatch: $-25$ deduction
+  - Context Inconclusive with User Hypothesis: $-10$ deduction
+  - Temporal Inconsistency: $-15$ deduction
+  - Manipulation Signals: $-15$ (High severity) / $-8$ (Medium severity)
+  - Severe Contradictions: $-15$ deduction
+- **Primary Claim Veto Rule**:
+  - If any `PRIMARY` claim is contradicted (`FAKE`), the overall verdict **cannot be `LEGIT`**.
+  - If context mismatch is detected (`MISMATCH`), the overall verdict **cannot be `LEGIT`**.
+- **Verdict Scale**:
+  - `LEGIT`: Final score $\ge 65$, no veto triggered, context consistent or neutral.
+  - `FAKE`: Final score $\le 35$ or veto triggered with low score.
+  - `INCONCLUSIVE`: Mixed evidence, unverified claims, or inconclusive context.
+
+### 9. Curated Demo Reels Feed (`demoReelsService`)
+- Provides 10 pre-provisioned demo reels covering science, history, context recycling, deepfakes, and financial fraud.
+- Rapid testing in hackathon and evaluation environments without uploading large video files.
+
+### 10. Transparent Video Verification Limitations
+TrustLens clearly communicates analytical boundaries:
+> *"Video verification evaluates factual claims, on-screen text, transcript fidelity, and contextual attribution against independent web evidence. It does not provide absolute cryptographic proof of raw camera sensor provenance or complete deepfake immunity."*
+
+

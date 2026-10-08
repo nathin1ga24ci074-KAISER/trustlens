@@ -174,6 +174,82 @@ export class GeminiProvider implements AIProvider {
     }
   }
 
+  async transcribeAudio(options: import('../ai.types').AIAudioTranscriptionOptions): Promise<AIResponse> {
+    if (!options.audio || !options.audio.data) {
+      throw new AIInvalidRequestError('Audio data cannot be empty', this.name);
+    }
+
+    const client = this.getClient();
+    const modelName = options.model || this.defaultModel;
+    const startTime = Date.now();
+    const timeoutMs = options.timeoutMs || 30000;
+
+    try {
+      const model = client.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: options.temperature ?? 0.1,
+        },
+        systemInstruction:
+          options.systemPrompt ||
+          'You are an expert audio transcription and speech verification analyst. Provide a faithful, clean transcript of spoken dialogue. Output a JSON object: { "fullTranscript": string, "segments": [{ "startTime": number, "endTime": number, "text": string }] }',
+      });
+
+      const base64Data = Buffer.isBuffer(options.audio.data)
+        ? options.audio.data.toString('base64')
+        : options.audio.data;
+
+      const parts: any[] = [
+        {
+          inlineData: {
+            data: base64Data,
+            mimeType: options.audio.mimeType,
+          },
+        },
+        options.prompt ||
+          'Transcribe all spoken dialogue in this audio file. Return a JSON structure with fullTranscript and timestamped segments: { "fullTranscript": string, "segments": [{ "startTime": number, "endTime": number, "text": string }] }',
+      ];
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const id = setTimeout(() => {
+          clearTimeout(id);
+          reject(new AITimeoutError(`Gemini audio transcription timed out after ${timeoutMs}ms`, this.name));
+        }, timeoutMs);
+      });
+
+      const generatePromise = model.generateContent(parts);
+      const result = await Promise.race([generatePromise, timeoutPromise]);
+      const latencyMs = Date.now() - startTime;
+
+      const response = await result.response;
+      const text = response.text();
+
+      const usageMetadata = response.usageMetadata;
+      const usage = usageMetadata
+        ? {
+            inputTokens: usageMetadata.promptTokenCount ?? null,
+            outputTokens: usageMetadata.candidatesTokenCount ?? null,
+            totalTokens: usageMetadata.totalTokenCount ?? null,
+          }
+        : null;
+
+      return {
+        text,
+        provider: this.name,
+        model: modelName,
+        usage,
+        latencyMs,
+      };
+    } catch (error: any) {
+      const latencyMs = Date.now() - startTime;
+      if (error instanceof AITimeoutError) {
+        throw error;
+      }
+      throw this.normalizeError(error, latencyMs);
+    }
+  }
+
+
   private normalizeError(error: any, _latencyMs: number): Error {
     const rawMsg = error?.message || String(error);
 

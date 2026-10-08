@@ -14,11 +14,11 @@ TrustLens is an empirical verification platform engineered to evaluate the credi
 - **Stage 3 — Evidence-Backed Text Verification (`POST /api/verify/text`)**: Natural language claim extraction, entity resolution, search query generation, Google Search Grounding for real-time web citations, stance classification (`SUPPORTS`, `CONTRADICTS`, `NEUTRAL`), contradiction severity analysis, deterministic trust scoring (0–100), and epistemic uncertainty penalties.
 - **Stage 4 — Evidence-Backed URL Verification (`POST /api/verify/url`)**: Webpage verification pipeline featuring SSRF defense shields, streaming HTML fetch, readability-style container extraction, structured metadata parsing, multi-claim prioritization (`PRIMARY`, `SUPPORTING`, `MINOR`), independent web evidence synthesis, circular source exclusion (the verified page cannot confirm itself), headline clickbait distortion detection, internal narrative consistency checks, and deterministic URL trust scoring with primary claim veto rules.
 - **Stage 5 — Evidence-Backed Image Verification (`POST /api/verify/image`)**: Digital image verification pipeline combining in-memory buffer validation, magic byte sniffing against disguised executables, decompression bomb protection (10,000px/40MP), EXIF parsing with GPS privacy shielding, multimodal visual analysis (Gemini API with strict separation of OBSERVED vs INFERRED facts), embedded OCR text extraction, claim source formulation (`IMAGE_VISUAL`, `IMAGE_TEXT`, `USER_CONTEXT`), image authenticity vs. context recycling evaluation (detecting genuine images placed in false contexts), deterministic scoring with primary claim and context veto rules, and complete reactive UI.
+- **Stage 6 — Evidence-Backed Video & Reel Verification (`POST /api/verify/video`)**: Comprehensive video & social media reels verification pipeline combining disk streaming security (up to 50MB), binary magic byte validation (MP4, WebM, MOV), FFmpeg stream probing and keyframe sampling with hash deduplication, audio extraction and speech transcription with timestamped segments, multimodal visual keyframe analysis (OBSERVED vs. INFERRED), OCR text extraction, empirical claim formulation (`VIDEO_AUDIO`, `VIDEO_VISUAL`, `VIDEO_TEXT`, `USER_CONTEXT`), temporal consistency checks (location, date, sequence conflicts), context recycling evaluation, deterministic video trust scoring with Primary Claim Veto Rule, and vertical reels player UI with 10 pre-loaded demo reels.
 
 ### Upcoming Milestones:
-- **Stage 6 — Video & Social Media Reels Verification**: Video ingestion, keyframe sampling, audio transcription, timeline consistency checks, and multi-claim synthesis.
-- **Stage 7 — Multimodal Unified Verification Platform**: Integrated intelligence combining text, URL, image, and video across a unified analysis interface.
-
+- **Stage 7 — Multimodal Unified Verification Platform**: Integrated intelligence combining text, URL, image, and video across a unified analysis interface with cross-modal correlation.
+- **Stage 8 — Production Hardening & Deployment**: Security auditing, Dockerization, caching layers, and public demonstration deployment.
 
 ---
 
@@ -121,6 +121,42 @@ EXPLAINABLE AUDIT TRAIL PERSISTED TO USER AUDIT HISTORY
 
 ---
 
+## Video & Reel Verification Pipeline (Stage 6)
+
+1. **Secure Ingestion & Binary Protection**:
+   - Streamed via `multer.diskStorage()` to secure temporary directory (`server/tmp/video-uploads/`).
+   - Magic byte header inspection validates MP4 (`ftyp`), WebM (`1A 45 DF A3`), and MOV containers.
+   - Disguised Windows PE binaries (`MZ`), Linux ELF binaries (`\x7fELF`), and scripts are rejected with `400 Bad Request`.
+   - Guaranteed cleanup of working temp files in a `finally` block on both success and failure.
+2. **Stream Probing & Keyframe Sampling**:
+   - Probes duration, resolution, codecs, and audio streams via `ffmpeg-static` / system FFmpeg.
+   - Enforces configurable limits: max 50MB, max 120s duration, max 3840x2160 resolution.
+   - Samples keyframes across opening, narrative arc, midpoint, and conclusion with content-hash deduplication.
+3. **Audio Extraction & Speech-to-Text Transcription**:
+   - Extracts audio track to 16kHz mono WAV and routes to Gemini audio transcription.
+   - Produces timestamped transcript segments (`VideoTranscriptSegment[]`) and full narrative transcript.
+   - Gracefully handles clips without audio without failing or hallucinating dialogue.
+4. **Multimodal Keyframe Understanding & OCR**:
+   - Analyzes keyframes with Gemini Vision model.
+   - Strictly separates objective `OBSERVED` elements from speculative `INFERRED` hypotheses.
+   - Extracts on-screen text, placards, banners, lower-thirds, and watermarks via OCR.
+5. **Empirical Claim Extraction & Weighting**:
+   - Synthesizes factual assertions tagged by origin: `VIDEO_AUDIO`, `VIDEO_VISUAL`, `VIDEO_TEXT`, `USER_CONTEXT`.
+   - Assigns priority weights: `PRIMARY` (1.0), `SUPPORTING` (0.5), `MINOR` (0.25).
+6. **Temporal Consistency Analysis**:
+   - Identifies chronological conflicts, location conflicts, date mismatches, and dialogue-visual discrepancies.
+7. **Context Recycling Assessment**:
+   - Distinguishes authentic historical footage weaponized with false dates/locations from fabricated footage.
+8. **Deterministic Video Trust Scoring & Veto Rules**:
+   - Weighted average of verified claim trust scores.
+   - Deductions for context mismatch ($-25$), temporal inconsistency ($-15$), and manipulation signals ($-15$ or $-8$).
+   - **Primary Claim Veto Rule**: If any `PRIMARY` claim is ruled `FAKE` or context mismatch is detected, the video **cannot receive a `LEGIT` verdict**.
+9. **Curated Demo Reels Feed**:
+   - 10 pre-provisioned demo reels covering science, history, deepfakes, and fraud for instant evaluation.
+   - Dedicated reels-style vertical player UI (`VideoVerifier.tsx`).
+
+---
+
 ## Prerequisites
 
 Before running TrustLens locally, ensure the following are installed:
@@ -169,6 +205,12 @@ cp .env.example server/.env
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Configurable Gemini model |
 | `GROQ_API_KEY` | `""` | Groq API key (never exposed to client) |
 | `GROQ_MODEL` | `qwen/qwen3.8-27b` | Configurable Groq model |
+| `VIDEO_MAX_SIZE_MB` | `50` | Maximum video file upload size in megabytes |
+| `VIDEO_MAX_DURATION_SECONDS` | `120` | Maximum video clip duration in seconds |
+| `VIDEO_MAX_WIDTH` | `3840` | Maximum allowed video frame width (4K max) |
+| `VIDEO_MAX_HEIGHT` | `2160` | Maximum allowed video frame height (4K max) |
+| `VIDEO_MAX_FRAMES` | `8` | Maximum number of keyframes sampled per video |
+| `FFMPEG_PATH` | `""` | Custom path to FFmpeg binary (auto-detects `ffmpeg-static`) |
 
 ---
 
@@ -186,7 +228,7 @@ npm run dev:client
 # Type-check all packages (shared, server, client)
 npm run typecheck
 
-# Run full test suite (54 comprehensive unit, security & integration tests)
+# Run full test suite (74 comprehensive unit, security & integration tests)
 npm test
 
 # Build all packages for production
@@ -201,17 +243,19 @@ npm run build
 trustlens/
 ├── client/                     # Frontend (React 18, Vite, Tailwind CSS, Lucide icons)
 │   ├── src/
-│   │   ├── components/         # Reusable UI & Verifiers (TextVerifier, UrlVerifier, ImageVerifier)
+│   │   ├── components/         # Reusable UI & Verifiers (TextVerifier, UrlVerifier, ImageVerifier, VideoVerifier)
 │   │   ├── context/            # AuthContext (session state, user rehydration)
 │   │   ├── pages/              # LandingPage, LoginPage, RegisterPage, DashboardPage, HistoryPage
 │   │   └── services/           # API client layer with Bearer credentials
+│   └── public/demo-videos/     # Pre-rendered MP4 clips for instant demo reels testing
 ├── server/                     # Backend API (Node.js, Express, TypeScript, Prisma)
+│   ├── demo-videos/            # Backend master copy of demo video clips
 │   ├── prisma/
 │   │   └── schema.prisma       # PostgreSQL schema (User, VerificationHistory)
 │   └── src/
 │       ├── middleware/         # Security, rate limiting, and multer upload middleware
 │       ├── services/
-│       │   ├── ai/             # Provider abstraction (Gemini with Multimodal, Groq)
+│       │   ├── ai/             # Provider abstraction (Gemini with Multimodal & Audio, Groq)
 │       │   ├── text/           # Text claim extraction & verification
 │       │   ├── evidence/       # Grounded web evidence retrieval
 │       │   ├── contradiction/  # Stance classification & contradiction detection
@@ -219,10 +263,11 @@ trustlens/
 │       │   └── verification/
 │       │       ├── url/        # Stage 4 URL verification subsystem
 │       │       ├── image/      # Stage 5 Image verification subsystem
+│       │       ├── video/      # Stage 6 Video & Reel verification subsystem
 │       │       └── verification-history.service.ts # Audit history persistence
 ├── shared/                     # Shared TypeScript interfaces across client and server
 ├── docs/                       # Architecture, Database, Authentication & Roadmap specifications
-├── test-suite.ts               # End-to-end verification and security test suite (54 tests)
+├── test-suite.ts               # End-to-end verification and security test suite (74 tests)
 ├── package.json                # Monorepo workspaces root configuration
 └── README.md
 ```

@@ -20,12 +20,13 @@ import { Button } from '../components/common/Button';
 import { TextVerifier } from '../components/verification/TextVerifier';
 import { UrlVerifier } from '../components/verification/UrlVerifier';
 import { ImageVerifier } from '../components/verification/ImageVerifier';
+import { VideoVerifier } from '../components/verification/VideoVerifier';
 import { AIDiagnosticsCard } from '../components/ai/AIDiagnosticsCard';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [activeTab, setActiveTab] = useState<'TEXT' | 'URL' | 'IMAGE'>('TEXT');
+  const [activeTab, setActiveTab] = useState<'TEXT' | 'URL' | 'IMAGE' | 'VIDEO'>('TEXT');
 
   return (
     <div className="flex-1 py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full space-y-8">
@@ -36,8 +37,9 @@ export const DashboardPage: React.FC = () => {
             <h1 className="text-2xl font-bold tracking-tight text-white">
               Verification Workspace
             </h1>
-            <Badge variant="brand">Text, URL & Image Engines Active</Badge>
+            <Badge variant="brand">Text, URL, Image & Video Engines Active</Badge>
           </div>
+
           <p className="text-xs text-slate-400">
             Authenticated session for <span className="text-slate-200 font-medium">{user?.email}</span>
           </p>
@@ -120,6 +122,17 @@ export const DashboardPage: React.FC = () => {
           <Image className="w-4 h-4" />
           Images
         </button>
+        <button
+          onClick={() => setActiveTab('VIDEO')}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+            activeTab === 'VIDEO'
+              ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-slate-950 font-bold shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Video className="w-4 h-4" />
+          Video Reels
+        </button>
       </div>
 
       {/* PRIMARY WORKSPACE */}
@@ -127,7 +140,9 @@ export const DashboardPage: React.FC = () => {
         {activeTab === 'TEXT' && <TextVerifier />}
         {activeTab === 'URL' && <UrlVerifier />}
         {activeTab === 'IMAGE' && <ImageVerifier />}
+        {activeTab === 'VIDEO' && <VideoVerifier />}
       </section>
+
 
       {/* Upcoming Verification Modalities Architecture */}
       <div className="pt-6 border-t border-slate-900">
@@ -174,16 +189,17 @@ export const DashboardPage: React.FC = () => {
             <Badge variant="success" size="sm">Active (Stage 5)</Badge>
           </Card>
 
-          <Card className="border-dashed border-slate-800 bg-slate-950/40">
-            <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mb-3">
+          <Card className="border-amber-900/60 bg-amber-950/20">
+            <div className="w-9 h-9 rounded-lg bg-amber-950 border border-amber-800 flex items-center justify-center text-amber-400 mb-3">
               <Video className="w-5 h-5 text-amber-400" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-200 mb-1">Video & Audio Reels</h3>
-            <p className="text-xs text-slate-400 leading-relaxed mb-3">
+            <h3 className="text-sm font-semibold text-white mb-1">Video & Audio Reels</h3>
+            <p className="text-xs text-slate-300 leading-relaxed mb-3">
               Temporal keyframe extraction, audio transcription, and synthetic artifact analysis.
             </p>
-            <Badge variant="neutral" size="sm">Stage 6 Pipeline</Badge>
+            <Badge variant="success" size="sm">Active (Stage 6)</Badge>
           </Card>
+
         </div>
       </div>
     </div>

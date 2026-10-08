@@ -2,6 +2,7 @@ import {
   TextVerificationResult,
   UrlVerificationResult,
   ImageVerificationResult,
+  VideoVerificationResult,
   VerificationHistoryItem,
 } from '@trustlens/shared';
 import { prisma, isDbConnected } from '../../config/db';
@@ -28,24 +29,31 @@ const memoryVerifications = new Map<string, StoredVerificationRecord>();
 
 class VerificationHistoryService {
   /**
-   * Save a completed verification (TEXT, URL, or IMAGE) to the database associated with the user
+   * Save a completed verification (TEXT, URL, IMAGE, or VIDEO) to the database associated with the user
    */
   async saveVerification(
     userId: string,
-    result: TextVerificationResult | UrlVerificationResult | ImageVerificationResult,
-    type: 'TEXT' | 'URL' | 'IMAGE' = 'TEXT'
+    result: TextVerificationResult | UrlVerificationResult | ImageVerificationResult | VideoVerificationResult,
+    type: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' = 'TEXT'
   ): Promise<string> {
+    const isVideo = type === 'VIDEO' || (result as any).inputType === 'VIDEO';
     const isImage = type === 'IMAGE' || (result as any).inputType === 'IMAGE';
     const isUrl = type === 'URL' || 'inputUrl' in result;
     const confidenceToScore = result.confidence === 'HIGH' ? 0.9 : result.confidence === 'MEDIUM' ? 0.6 : 0.3;
 
-    const originalInput = isImage
+    const originalInput = isVideo
+      ? (result as VideoVerificationResult).userContext || (result as VideoVerificationResult).summary || 'Uploaded Video'
+      : isImage
       ? (result as ImageVerificationResult).userContext || 'Uploaded Image'
       : isUrl
       ? (result as UrlVerificationResult).inputUrl
       : (result as TextVerificationResult).input;
 
-    const extractedClaim = isImage
+    const extractedClaim = isVideo
+      ? (result as VideoVerificationResult).claims[0]?.claim ||
+        (result as VideoVerificationResult).summary?.slice(0, 100) ||
+        'Video Verification'
+      : isImage
       ? (result as ImageVerificationResult).claims[0]?.claim ||
         (result as ImageVerificationResult).visualAnalysis?.description?.slice(0, 100) ||
         'Image Verification'
@@ -53,19 +61,29 @@ class VerificationHistoryService {
       ? (result as UrlVerificationResult).page.title
       : (result as TextVerificationResult).claim;
 
-    const verdict = isImage
+    const verdict = isVideo
+      ? (result as VideoVerificationResult).overallVerdict || (result as VideoVerificationResult).verdict
+      : isImage
       ? (result as ImageVerificationResult).overallVerdict
       : isUrl
       ? (result as UrlVerificationResult).overallVerdict
       : (result as TextVerificationResult).verdict;
 
-    const uncertaintyScore = isImage
+    const uncertaintyScore = isVideo
+      ? 0.2
+      : isImage
       ? 0.2
       : isUrl
       ? 0.2
       : Math.max(0, Math.min(1, ((result as TextVerificationResult).scoreBreakdown?.uncertaintyPenalty || 0) / 100));
 
-    const recordType: 'TEXT' | 'URL' | 'IMAGE' = isImage ? 'IMAGE' : isUrl ? 'URL' : 'TEXT';
+    const recordType: 'TEXT' | 'URL' | 'IMAGE' | 'VIDEO' = isVideo
+      ? 'VIDEO'
+      : isImage
+      ? 'IMAGE'
+      : isUrl
+      ? 'URL'
+      : 'TEXT';
 
     if (isDbConnected()) {
       try {
@@ -73,6 +91,7 @@ class VerificationHistoryService {
           data: {
             id: result.verificationId,
             userId,
+
             type: recordType,
             originalInput,
             extractedClaim,
@@ -115,7 +134,7 @@ class VerificationHistoryService {
   async getVerificationById(
     id: string,
     userId: string
-  ): Promise<TextVerificationResult | UrlVerificationResult | ImageVerificationResult | null> {
+  ): Promise<TextVerificationResult | UrlVerificationResult | ImageVerificationResult | VideoVerificationResult | null> {
     if (isDbConnected()) {
       try {
         const record = await prisma.verificationHistory.findUnique({
@@ -131,7 +150,8 @@ class VerificationHistoryService {
           return record.metadata as unknown as
             | TextVerificationResult
             | UrlVerificationResult
-            | ImageVerificationResult;
+            | ImageVerificationResult
+            | VideoVerificationResult;
         }
 
         return this.mapRecordToResult(record);
@@ -149,9 +169,11 @@ class VerificationHistoryService {
       (mem.metadata as
         | TextVerificationResult
         | UrlVerificationResult
-        | ImageVerificationResult) || this.mapRecordToResult(mem)
+        | ImageVerificationResult
+        | VideoVerificationResult) || this.mapRecordToResult(mem)
     );
   }
+
 
   /**
    * Retrieve all verifications belonging to the user

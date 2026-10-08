@@ -23,4 +23,12 @@ export const env = {
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
   GROQ_API_KEY: process.env.GROQ_API_KEY || '',
   GROQ_MODEL: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
+  // Video Verification Configuration (Stage 6)
+  VIDEO_MAX_SIZE_MB: parseInt(process.env.VIDEO_MAX_SIZE_MB || '50', 10),
+  VIDEO_MAX_DURATION_SECONDS: parseInt(process.env.VIDEO_MAX_DURATION_SECONDS || '120', 10),
+  VIDEO_MAX_WIDTH: parseInt(process.env.VIDEO_MAX_WIDTH || '3840', 10),
+  VIDEO_MAX_HEIGHT: parseInt(process.env.VIDEO_MAX_HEIGHT || '2160', 10),
+  VIDEO_MAX_FRAMES: parseInt(process.env.VIDEO_MAX_FRAMES || '8', 10),
+  FFMPEG_PATH: process.env.FFMPEG_PATH || '',
 };
+

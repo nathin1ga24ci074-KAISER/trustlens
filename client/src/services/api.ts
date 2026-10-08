@@ -6,8 +6,11 @@ import {
   TextVerificationResult,
   UrlVerificationResult,
   ImageVerificationResult,
+  VideoVerificationResult,
+  DemoReelItem,
   VerificationHistoryItem,
 } from '@trustlens/shared';
+
 
 const API_BASE = '/api';
 
@@ -173,9 +176,43 @@ class ApiService {
     return data;
   }
 
+  async verifyVideo(formData: FormData): Promise<{ success: boolean; data?: VideoVerificationResult; message?: string }> {
+    const headers: Record<string, string> = {};
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/verify/video`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const message = data.message || `Request failed with status ${response.status}`;
+      const error: any = new Error(message);
+      error.status = response.status;
+      error.errorCode = data.errorCode;
+      error.errors = data.errors;
+      throw error;
+    }
+
+    return data;
+  }
+
+  async getDemoReels(): Promise<{ success: boolean; data: DemoReelItem[] }> {
+    return this.request('/verify/video/demo-reels', {
+      method: 'GET',
+    });
+  }
+
   async getVerification(
     id: string
-  ): Promise<{ success: boolean; data: TextVerificationResult | UrlVerificationResult | ImageVerificationResult }> {
+  ): Promise<{ success: boolean; data: TextVerificationResult | UrlVerificationResult | ImageVerificationResult | VideoVerificationResult }> {
     return this.request(`/verify/${id}`, {
       method: 'GET',
     });
@@ -189,3 +226,4 @@ class ApiService {
 }
 
 export const api = new ApiService();
+

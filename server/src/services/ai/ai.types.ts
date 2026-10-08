@@ -18,6 +18,10 @@ export interface AIProvider {
    * Multimodal image capability (Stage 5+)
    */
   generateMultimodal?(options: AIMultimodalOptions): Promise<AIResponse>;
+  /**
+   * Audio transcription & speech analysis capability (Stage 6)
+   */
+  transcribeAudio?(options: AIAudioTranscriptionOptions): Promise<AIResponse>;
   analyzeImage?(imageData: Buffer | string, mimeType: string, prompt: string): Promise<AIResponse>;
   analyzeVideo?(videoData: Buffer | string, mimeType: string, prompt: string): Promise<AIResponse>;
   extractClaims?(text: string): Promise<AIResponse>;
@@ -39,3 +43,18 @@ export interface AIMultimodalOptions {
   maxTokens?: number;
   timeoutMs?: number;
 }
+
+export interface AIAudioPart {
+  data: Buffer | string;
+  mimeType: string; // 'audio/wav' | 'audio/mp3' | 'audio/mpeg' | 'audio/ogg'
+}
+
+export interface AIAudioTranscriptionOptions {
+  audio: AIAudioPart;
+  prompt?: string;
+  model?: string;
+  systemPrompt?: string;
+  temperature?: number;
+  timeoutMs?: number;
+}
+

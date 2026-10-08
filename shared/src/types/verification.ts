@@ -347,3 +347,159 @@ export interface VerifyImageResponse {
   message?: string;
   errorCode?: string;
 }
+
+// -------------------------------------------------------------
+// STAGE 6 VIDEO / REEL VERIFICATION TYPES
+// -------------------------------------------------------------
+
+export type VideoFormat = 'mp4' | 'webm' | 'mov' | 'unknown';
+
+export interface VideoMetadata {
+  durationSeconds: number;
+  width: number;
+  height: number;
+  fps?: number;
+  format: VideoFormat;
+  sizeBytes: number;
+  hasAudio: boolean;
+  audioCodec?: string;
+  videoCodec?: string;
+}
+
+export interface VideoKeyframe {
+  frameIndex: number;
+  timestampSeconds: number;
+  extractedImage: string; // Base64 JPEG data URL or thumbnail
+  hash: string;
+  selectionReason: string;
+  visualDescription?: string;
+  observed: string[];
+  inferred: string[];
+  ocrText?: string[];
+}
+
+export interface VideoTranscriptSegment {
+  startTime: number;
+  endTime: number;
+  text: string;
+}
+
+export interface VideoTranscriptAnalysis {
+  transcriptAvailable: boolean;
+  fullTranscript: string;
+  segments: VideoTranscriptSegment[];
+  status: string;
+  language?: string;
+}
+
+export type VideoTemporalVerdict = 'TEMPORAL_CONSISTENT' | 'TEMPORAL_INCONSISTENT' | 'TEMPORAL_INCONCLUSIVE';
+
+export interface VideoTemporalInconsistency {
+  type: 'TIMESTAMP_ORDER' | 'LOCATION_CONFLICT' | 'DATE_CONFLICT' | 'EVENT_CONFLICT' | 'NARRATION_MISMATCH';
+  description: string;
+  timestamps?: number[];
+}
+
+export interface VideoTemporalAnalysis {
+  verdict: VideoTemporalVerdict;
+  details: string;
+  inconsistencies: VideoTemporalInconsistency[];
+}
+
+export interface VideoContextAssessment {
+  verdict: 'CONSISTENT' | 'MISMATCH' | 'INCONCLUSIVE';
+  claimedDate?: string | null;
+  claimedLocation?: string | null;
+  claimedEvent?: string | null;
+  explanation: string;
+}
+
+export interface VideoManipulationSignal {
+  type: 'EDITING_CUTS' | 'AUDIO_DESYNC' | 'SPEED_ALTERATION' | 'VISUAL_ARTIFACT' | 'GENERATIVE_SIGNS';
+  severity: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  description: string;
+  timestampSeconds?: number;
+}
+
+export type VideoClaimSource =
+  | 'VIDEO_AUDIO'
+  | 'VIDEO_VISUAL'
+  | 'VIDEO_TEXT'
+  | 'USER_CONTEXT'
+  | 'MULTIMODAL_SYNTHESIS';
+
+export interface VideoClaimVerificationResult {
+  claimId: string;
+  claim: string;
+  source: VideoClaimSource;
+  claimType: ClaimType;
+  importance: ClaimImportance;
+  entities: string[];
+  event?: string | null;
+  dateContext?: string | null;
+  locationContext?: string | null;
+  timestamps: number[];
+  verdict: PrimaryVerdict;
+  trustScore: number;
+  confidence: ConfidenceLevel;
+  supportingEvidence: EvidenceItem[];
+  contradictingEvidence: EvidenceItem[];
+  neutralEvidence: EvidenceItem[];
+  contradictions: ContradictionAnalysisResult;
+  searchQueries: string[];
+  provenance: Array<{
+    source: string;
+    domain: string;
+    relationship?: string;
+  }>;
+}
+
+export interface VideoVerificationResult {
+  verificationId: string;
+  inputType: 'VIDEO';
+  videoMetadata: VideoMetadata;
+  userContext?: string | null;
+  transcript: VideoTranscriptAnalysis;
+  keyframes: VideoKeyframe[];
+  claims: VideoClaimVerificationResult[];
+  overallVerdict: PrimaryVerdict;
+  verdict: PrimaryVerdict; // Convenience alias
+  trustScore: number;      // 0 - 100
+  confidence: ConfidenceLevel;
+  summary: string;
+  reasoning: string;
+  supportingEvidence: EvidenceItem[];
+  contradictingEvidence: EvidenceItem[];
+  neutralEvidence: EvidenceItem[];
+  contradictions: ContradictionAnalysisResult[];
+  temporalAnalysis: VideoTemporalAnalysis;
+  contextAnalysis: VideoContextAssessment;
+  manipulationSignals: VideoManipulationSignal[];
+  provenance: Array<{
+    source: string;
+    domain: string;
+    relationship?: string;
+  }>;
+  limitations: string[];
+  createdAt: string;
+}
+
+export interface VerifyVideoResponse {
+  success: boolean;
+  data?: VideoVerificationResult;
+  message?: string;
+  errorCode?: string;
+}
+
+export interface DemoReelItem {
+  id: string;
+  title: string;
+  description: string;
+  claimedContext: string;
+  duration: number;
+  category: string;
+  videoUrl: string;
+  thumbnailUrl?: string;
+  sourceFilename?: string;
+}
+

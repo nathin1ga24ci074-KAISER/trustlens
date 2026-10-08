@@ -62,10 +62,41 @@
 
 ---
 
-## Phase 6: Video & Social Media Reels Verification (Next Milestone)
-- [ ] Video URL / file ingestion with frame sampling
-- [ ] Audio extraction and speech-to-text transcription
-- [ ] Keyframe reverse visual search and timeline consistency checks
-- [ ] Deepfake facial artifact and synthetic audio detection
-- [ ] Multi-claim temporal alignment and overall trust assessment
+## Phase 6: Video & Social Media Reels Verification (Complete)
+- [x] Multi-format video ingestion & binary security (MP4, WebM, MOV up to 50MB)
+- [x] Magic byte sniffing & executable disguise rejection (rejects Windows PE `MZ`, Linux ELF, scripts disguised as video)
+- [x] Video dimension, duration, and frame rate caps (`VIDEO_MAX_DURATION_SECONDS=120`, `VIDEO_MAX_WIDTH=3840`, `VIDEO_MAX_HEIGHT=2160`)
+- [x] Path traversal sanitization on uploaded video filenames
+- [x] Secure temporary directory handling with guaranteed disk cleanup on success AND failure (`finally` block)
+- [x] FFmpeg integration (`ffmpeg-static` and system fallback) for probing and stream analysis
+- [x] Keyframe sampling across opening, narrative development, midpoint, and conclusion with content-hash deduplication
+- [x] Audio track extraction (16kHz mono WAV) and timestamped speech-to-text transcription via Gemini audio integration
+- [x] Graceful degradation for audio-less footage without fabricating transcripts
+- [x] Multimodal visual analysis strictly enforcing separation between OBSERVED facts and INFERRED speculation
+- [x] OCR text extraction from news tickers, placards, placards, watermarks, and subtitles
+- [x] Empirical claim formulation tagged by source (`VIDEO_AUDIO`, `VIDEO_VISUAL`, `VIDEO_TEXT`, `USER_CONTEXT`) and weighted (`PRIMARY`, `SUPPORTING`, `MINOR`)
+- [x] Independent web evidence retrieval reusing Stage 3 Google Search Grounding engine
+- [x] Circular evidence exclusion blocking uploaded video filenames and localhost from self-corroboration
+- [x] Video temporal consistency analysis (chronological sequence, location conflict, date conflict, dialogue-visual mismatch)
+- [x] Video context recycling assessment (distinguishing genuine archival footage from false event/date claims)
+- [x] Deterministic video trust scoring with Primary Claim Veto Rule (contradicted primary claim or recycled context forbids LEGIT)
+- [x] Curated local demo reels feed (`DemoReelItem[]`, 10 demo clips) for rapid testing without large uploads
+- [x] Vertical reels-style responsive player UI (`VideoVerifier.tsx`, play/pause, volume/mute, keyframe scrub drawer, transcript viewer, temporal conflict alerts, claim cards, limitations modal)
+- [x] Per-user verification history persistence and strict isolation for `VIDEO` type
+
+---
+
+## Phase 7: Unified Multimodal Workspace (Next Milestone)
+- [ ] Unified multi-input workspace (simultaneous text, URL, image, and video analysis)
+- [ ] Cross-modal correlation and multi-evidence triangulation
+- [ ] Aggregated multimodal trust score and comparative stance matrix
+- [ ] Advanced threat intelligence and coordinated disinformation campaign detection
+
+---
+
+## Phase 8: Production Hardening & Deployment
+- [ ] Docker containerization and production clustering
+- [ ] Advanced rate limiting and caching layer
+- [ ] Security auditing and pen-testing
+- [ ] Public demonstration deployment and benchmark validation
 

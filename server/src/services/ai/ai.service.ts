@@ -155,6 +155,18 @@ export class AIService {
     }
     return gemini.generateMultimodal(options);
   }
+
+  /**
+   * Audio transcription using Gemini audio capabilities
+   */
+  async transcribeAudio(options: import('./ai.types').AIAudioTranscriptionOptions): Promise<AIResponse> {
+    const gemini = this.getProvider('gemini');
+    if (!gemini.transcribeAudio) {
+      throw new AIProviderError('Audio transcription capability is not implemented on the Gemini provider', 'gemini');
+    }
+    return gemini.transcribeAudio(options);
+  }
 }
+
 
 export const aiService = new AIService();

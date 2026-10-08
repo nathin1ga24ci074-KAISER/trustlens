@@ -1,11 +1,21 @@
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { textVerificationService } from '../services/text/text-verification.service';
 import { urlVerificationService, UrlFetchError } from '../services/verification/url';
 import { imageVerificationService, ImageSecurityError } from '../services/verification/image';
+import {
+  videoVerificationService,
+  videoSecurityService,
+  demoReelsService,
+  VideoSecurityError,
+} from '../services/verification/video';
 import { verificationHistoryService } from '../services/verification/verification-history.service';
 
 export class VerificationController {
+
   /**
    * POST /api/verify/text
    * Executes the full multi-stage evidence-backed text verification pipeline
@@ -124,6 +134,115 @@ export class VerificationController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/verify/video
+   * Executes the full multi-stage evidence-backed video verification pipeline
+   */
+  async verifyVideo(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Authentication required' });
+        return;
+      }
+
+      let filePath = req.file?.path;
+      let originalFilename = req.file?.originalname || 'uploaded_video.mp4';
+      let declaredMimeType = req.file?.mimetype;
+      let fileSizeBytes = req.file?.size || 0;
+
+      // Check if user submitted a demo reel ID instead of a direct file upload
+      const demoId = req.body?.demoId;
+      if (!filePath && demoId && typeof demoId === 'string') {
+        const demoPath = demoReelsService.getDemoReelFilePath(demoId);
+        if (!demoPath || !fs.existsSync(demoPath)) {
+          res.status(400).json({
+            success: false,
+            errorCode: 'DEMO_REEL_NOT_FOUND',
+            message: `Demo reel with ID "${demoId}" was not found or is unavailable.`,
+          });
+          return;
+        }
+
+        // Create temporary copy in upload dir so cleanup does not delete original demo file
+        const tempCopyPath = path.join(
+          videoSecurityService.ensureTempDir(),
+          `demo_copy_${crypto.randomUUID()}_${path.basename(demoPath)}`
+        );
+        fs.copyFileSync(demoPath, tempCopyPath);
+
+        filePath = tempCopyPath;
+        originalFilename = path.basename(demoPath);
+        declaredMimeType = 'video/mp4';
+        fileSizeBytes = fs.statSync(tempCopyPath).size;
+      }
+
+      if (!filePath) {
+        res.status(400).json({
+          success: false,
+          errorCode: 'VIDEO_EMPTY',
+          message: 'A video file must be uploaded under the "video" field, or a valid "demoId" must be provided.',
+        });
+        return;
+      }
+
+      const context = typeof req.body?.context === 'string' ? req.body.context : undefined;
+
+      const result = await videoVerificationService.verifyVideo({
+        filePath,
+        originalFilename,
+        declaredMimeType,
+        fileSizeBytes,
+        userContext: context,
+        userId: req.user.id,
+      });
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      if (error instanceof VideoSecurityError) {
+        const statusCode =
+          error.code === 'VIDEO_TOO_LARGE' ||
+          error.code === 'VIDEO_INVALID_TYPE' ||
+          error.code === 'VIDEO_EMPTY' ||
+          error.code === 'VIDEO_TOO_LONG' ||
+          error.code === 'VIDEO_DIMENSIONS_TOO_LARGE' ||
+          error.code === 'VIDEO_CORRUPT'
+            ? 400
+            : error.code === 'FFMPEG_UNAVAILABLE'
+            ? 503
+            : 422;
+
+        res.status(statusCode).json({
+          success: false,
+          errorCode: error.code,
+          message: error.message,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/verify/video/demo-reels
+   * Lists available local demo reels for rapid hackathon testing
+   */
+  async getDemoReels(_req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      demoReelsService.ensureDemoVideos();
+      const reels = demoReelsService.getDemoReels();
+      res.status(200).json({
+        success: true,
+        data: reels,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
   /**
    * GET /api/verify/:id

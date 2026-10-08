@@ -1,0 +1,29 @@
+{
+  "name": "trustlens",
+  "version": "0.1.0",
+  "description": "Multimodal misinformation and trust-assessment platform",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:server": "npm --workspace=server run dev",
+    "dev:client": "npm --workspace=client run dev",
+    "build": "npm --workspace=shared run build && npm --workspace=server run build && npm --workspace=client run build",
+    "typecheck": "npm --workspace=shared run typecheck && npm --workspace=server run typecheck && npm --workspace=client run typecheck",
+    "test": "npx tsx test-suite.ts",
+    "prisma:generate": "npm --workspace=server run prisma:generate",
+    "prisma:migrate": "npm --workspace=server run prisma:migrate"
+  },
+  "keywords": [
+    "misinformation",
+    "trust",
+    "verification",
+    "fact-checking",
+    "multimodal"
+  ],
+  "author": "TrustLens Team",
+  "license": "MIT"
+}

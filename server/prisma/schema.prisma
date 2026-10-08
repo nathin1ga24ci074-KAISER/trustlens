@@ -1,0 +1,61 @@
+// Prisma schema for TrustLens platform
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum VerificationType {
+  TEXT
+  URL
+  IMAGE
+  VIDEO
+}
+
+enum VerificationVerdict {
+  VERIFIED_TRUE
+  MOSTLY_TRUE
+  MISLEADING
+  FALSE
+  UNVERIFIED
+  DISPUTED
+}
+
+model User {
+  id            String                @id @default(uuid())
+  name          String
+  email         String                @unique
+  passwordHash  String
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  verifications VerificationHistory[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model VerificationHistory {
+  id               String               @id @default(uuid())
+  userId           String
+  type             VerificationType
+  originalInput    String               @db.Text
+  extractedClaim   String?              @db.Text
+  verdict          VerificationVerdict?
+  trustScore       Float?               // 0.0 to 100.0 score
+  uncertaintyScore Float?               // 0.0 to 1.0 (epistemic/aleatoric uncertainty)
+  confidenceScore  Float?               // 0.0 to 1.0 confidence level
+  explanation      String?              @db.Text
+  metadata         Json?                // Stored analysis artifacts, source citations, evidence graph
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("verification_history")
+}

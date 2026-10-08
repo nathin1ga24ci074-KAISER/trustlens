@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-100 font-sans;
+  }
+}
+
+/* Subtle, crisp focus rings and transitions */
+button, input, a {
+  @apply transition-colors duration-150;
+}

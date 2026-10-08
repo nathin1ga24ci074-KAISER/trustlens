@@ -17,7 +17,7 @@ export class GeminiProvider implements AIProvider {
   private client: GoogleGenerativeAI | null = null;
 
   constructor() {
-    this.defaultModel = env.GEMINI_MODEL || 'gemini-1.5-flash';
+    this.defaultModel = env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   }
 
   isConfigured(): boolean {
@@ -46,7 +46,7 @@ export class GeminiProvider implements AIProvider {
     const client = this.getClient();
     const modelName = options.model || this.defaultModel;
     const startTime = Date.now();
-    const timeoutMs = options.timeoutMs || 30000;
+    const timeoutMs = options.timeoutMs || 15000;
 
     try {
       const model = client.getGenerativeModel({

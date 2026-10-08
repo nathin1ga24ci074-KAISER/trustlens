@@ -17,6 +17,9 @@ enum VerificationType {
 }
 
 enum VerificationVerdict {
+  LEGIT
+  INCONCLUSIVE
+  FAKE
   VERIFIED_TRUE
   MOSTLY_TRUE
   MISLEADING

@@ -42,6 +42,14 @@ export const aiTestSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
 });
 
+export const verifyTextSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(2, 'Claim statement must be at least 2 characters')
+    .max(5000, 'Claim statement cannot exceed 5,000 characters'),
+});
+
 export function validateBody(schema: z.ZodSchema) {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {

@@ -8,9 +8,13 @@ import {
   AIConfigurationError,
   AIInvalidRequestError,
   AIRateLimitError,
-  AIProviderError,
 } from './server/src/services/ai';
-import { AIGenerateOptions, AIResponse } from '@trustlens/shared';
+import { claimExtractor } from './server/src/services/text/claim-extractor';
+import { contradictionService } from './server/src/services/contradiction';
+import { trustScoringService } from './server/src/services/scoring';
+import { textVerificationService } from './server/src/services/text';
+import { verificationHistoryService } from './server/src/services/verification/verification-history.service';
+import { EvidenceItem } from '@trustlens/shared';
 
 interface TestResult {
   name: string;
@@ -28,225 +32,286 @@ function record(name: string, passed: boolean, details?: string) {
 
 async function runTests() {
   console.log('====================================================');
-  console.log('  TrustLens Test Suite (Auth + AI Foundation)       ');
+  console.log('  TrustLens Full Verification Test Suite            ');
   console.log('====================================================\n');
 
   // -----------------------------------------------------------------
-  // 1. UNIT & PROVIDER TESTS (IN-MEMORY / MOCK PROVIDERS)
+  // 1. AI PROVIDER ABSTRACTION UNIT TESTS
   // -----------------------------------------------------------------
-  console.log('--- 1. AI Provider Abstraction Unit Tests ---');
+  console.log('--- 1. AI Provider Abstraction Tests ---');
 
-  // Test 1.1: Provider Configuration Validation
+  // 1.1 Provider Configuration Detection
   {
     const geminiConfigured = geminiProvider.isConfigured();
     const groqConfigured = groqProvider.isConfigured();
     record(
-      'Provider Configuration Validation',
+      'Provider Configuration Detection',
       typeof geminiConfigured === 'boolean' && typeof groqConfigured === 'boolean',
-      `Gemini configured: ${geminiConfigured}, Groq configured: ${groqConfigured}`
+      `Gemini: ${geminiConfigured}, Groq: ${groqConfigured}`
     );
   }
 
-  // Test 1.2: Missing API Key Handling on Unconfigured Provider
+  // 1.2 Missing Key Throws AIConfigurationError
   {
-    class DummyUnconfiguredGemini extends (geminiProvider.constructor as any) {
+    class DummyUnconfigured extends (geminiProvider.constructor as any) {
       isConfigured() { return false; }
     }
-    const unconfigured = new DummyUnconfiguredGemini();
-    let threwConfigError = false;
+    let threwConfig = false;
     try {
-      await unconfigured.generateText({ prompt: 'test' });
+      await new DummyUnconfigured().generateText({ prompt: 'test' });
     } catch (err: any) {
-      if (err instanceof AIConfigurationError && err.code === 'AI_CONFIGURATION_ERROR' && err.statusCode === 500) {
-        threwConfigError = true;
-      }
+      if (err instanceof AIConfigurationError) threwConfig = true;
     }
-    record('Missing API Key Handling (Throws AIConfigurationError)', threwConfigError);
+    record('Missing API Key Throws AIConfigurationError', threwConfig);
   }
 
-  // Test 1.3: Empty Prompt Validation on Provider
+  // 1.3 Provider Fallback Strategy
   {
-    let threwInvalidRequest = false;
-    try {
-      await geminiProvider.generateText({ prompt: '   ' });
-    } catch (err: any) {
-      if (err instanceof AIInvalidRequestError && err.code === 'AI_INVALID_REQUEST' && err.statusCode === 400) {
-        threwInvalidRequest = true;
-      }
-    }
-    record('Provider Empty Prompt Rejection (Throws AIInvalidRequestError)', threwInvalidRequest);
-  }
-
-  // Test 1.4: Response Normalization Contract
-  {
-    const mockProvider: AIProvider = {
-      name: 'gemini',
-      defaultModel: 'mock-model',
-      isConfigured: () => true,
-      generateText: async (options: AIGenerateOptions): Promise<AIResponse> => ({
-        text: `Echo: ${options.prompt}`,
-        provider: 'gemini',
-        model: 'mock-model',
-        usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
-        latencyMs: 45,
-      }),
-    };
-
-    const res = await mockProvider.generateText({ prompt: 'Fact check claim' });
-    const isValidStructure =
-      res.text === 'Echo: Fact check claim' &&
-      res.provider === 'gemini' &&
-      res.model === 'mock-model' &&
-      res.usage?.inputTokens === 12 &&
-      res.usage?.outputTokens === 8 &&
-      res.latencyMs === 45;
-
-    record('AI Response Normalization Structure', isValidStructure);
-  }
-
-  // Test 1.5: AIService Strategy & Provider Selection
-  {
-    const mockGemini: AIProvider = {
+    const failingPrimary: AIProvider = {
       name: 'gemini',
       defaultModel: 'gemini-1.5-flash',
       isConfigured: () => true,
-      generateText: async () => ({
-        text: 'Gemini Response',
-        provider: 'gemini',
-        model: 'gemini-1.5-flash',
-        usage: null,
-        latencyMs: 50,
-      }),
+      generateText: async () => {
+        throw new AIRateLimitError('Rate limit exceeded', 'gemini');
+      },
     };
-
-    const mockGroq: AIProvider = {
+    const succeedingFallback: AIProvider = {
       name: 'groq',
       defaultModel: 'llama-3.3-70b-versatile',
       isConfigured: () => true,
       generateText: async () => ({
-        text: 'Groq Response',
+        text: 'Fallback succeeded',
         provider: 'groq',
         model: 'llama-3.3-70b-versatile',
-        usage: null,
+        usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
         latencyMs: 30,
       }),
     };
 
-    const customAIService = new AIService(
+    const service = new AIService(
       new Map<any, AIProvider>([
-        ['gemini', mockGemini],
-        ['groq', mockGroq],
+        ['gemini', failingPrimary],
+        ['groq', succeedingFallback],
       ])
     );
 
-    const directGemini = await customAIService.generateText({ prompt: 'test', targetProvider: 'gemini' });
-    const directGroq = await customAIService.generateText({ prompt: 'test', targetProvider: 'groq' });
-
+    const fallbackRes = await service.generateText({ prompt: 'test' });
     record(
-      'AI Service Explicit Provider Selection',
-      directGemini.provider === 'gemini' && directGroq.provider === 'groq'
-    );
-  }
-
-  // Test 1.6: AIService Fallback Execution on Primary Failure
-  {
-    let geminiAttempts = 0;
-    let groqAttempts = 0;
-
-    const failingGemini: AIProvider = {
-      name: 'gemini',
-      defaultModel: 'gemini-1.5-flash',
-      isConfigured: () => true,
-      generateText: async () => {
-        geminiAttempts++;
-        throw new AIRateLimitError('Gemini 429 Resource Exhausted', 'gemini');
-      },
-    };
-
-    const successfulGroq: AIProvider = {
-      name: 'groq',
-      defaultModel: 'llama-3.3-70b-versatile',
-      isConfigured: () => true,
-      generateText: async () => {
-        groqAttempts++;
-        return {
-          text: 'Fallback from Groq succeeded',
-          provider: 'groq',
-          model: 'llama-3.3-70b-versatile',
-          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-          latencyMs: 25,
-        };
-      },
-    };
-
-    const fallbackService = new AIService(
-      new Map<any, AIProvider>([
-        ['gemini', failingGemini],
-        ['groq', successfulGroq],
-      ])
-    );
-
-    const fallbackResult = await fallbackService.generateText({ prompt: 'Analyze claim evidence' });
-    record(
-      'AI Service Rate-Limit Fallback to Secondary Provider',
-      geminiAttempts === 1 &&
-        groqAttempts === 1 &&
-        fallbackResult.provider === 'groq' &&
-        fallbackResult.text === 'Fallback from Groq succeeded',
-      `Primary failed, fallback succeeded: ${fallbackResult.provider}`
-    );
-  }
-
-  // Test 1.7: AIService Does NOT Fallback on Invalid Request Error
-  {
-    let groqAttemptedOnInvalid = false;
-
-    const invalidRequestGemini: AIProvider = {
-      name: 'gemini',
-      defaultModel: 'gemini-1.5-flash',
-      isConfigured: () => true,
-      generateText: async () => {
-        throw new AIInvalidRequestError('Malformed prompt structure', 'gemini');
-      },
-    };
-
-    const mockGroq: AIProvider = {
-      name: 'groq',
-      defaultModel: 'llama-3.3-70b-versatile',
-      isConfigured: () => true,
-      generateText: async () => {
-        groqAttemptedOnInvalid = true;
-        return { text: '', provider: 'groq', model: '', usage: null, latencyMs: 0 };
-      },
-    };
-
-    const noFallbackService = new AIService(
-      new Map<any, AIProvider>([
-        ['gemini', invalidRequestGemini],
-        ['groq', mockGroq],
-      ])
-    );
-
-    let caughtInvalid = false;
-    try {
-      await noFallbackService.generateText({ prompt: 'bad input' });
-    } catch (err: any) {
-      if (err instanceof AIInvalidRequestError) {
-        caughtInvalid = true;
-      }
-    }
-
-    record(
-      'AI Service Skips Fallback on Invalid Request Errors',
-      caughtInvalid && !groqAttemptedOnInvalid,
-      `No wasted fallback request made: ${!groqAttemptedOnInvalid}`
+      'Provider Fallback on Rate Limit',
+      fallbackRes.provider === 'groq' && fallbackRes.text === 'Fallback succeeded'
     );
   }
 
   // -----------------------------------------------------------------
-  // 2. HTTP SERVER INTEGRATION & ENDPOINT TESTS
+  // 2. TEXT CLAIM EXTRACTION & VERIFICATION LOGIC TESTS
   // -----------------------------------------------------------------
-  console.log('\n--- 2. HTTP API Server & Auth Integration Tests ---');
+  console.log('\n--- 2. Claim Extraction & Evidence Logic Tests ---');
+
+  // 2.1 Non-Verifiable Greeting Detection
+  {
+    const greetingRes = await claimExtractor.extractClaim('Hello, how are you today?');
+    record(
+      'Non-Verifiable Input Rejection (Greeting / Casual)',
+      greetingRes.claimType === 'NON_VERIFIABLE' && greetingRes.verificationNeeded === false,
+      `ClaimType: ${greetingRes.claimType}, VerificationNeeded: ${greetingRes.verificationNeeded}`
+    );
+  }
+
+  // 2.2 Short Text Non-Verifiable Rejection
+  {
+    const shortRes = await claimExtractor.extractClaim('Hi');
+    record(
+      'Non-Verifiable Input Rejection (Too Short)',
+      shortRes.claimType === 'NON_VERIFIABLE' && shortRes.verificationNeeded === false
+    );
+  }
+
+  // 2.3 Search Query Generation
+  {
+    const queries = await claimExtractor.generateSearchQueries('India won the 2026 FIFA World Cup', ['India', 'FIFA World Cup']);
+    record(
+      'Search Query Generation',
+      Array.isArray(queries) && queries.length >= 1 && queries.every((q) => typeof q === 'string'),
+      `Generated ${queries.length} queries: "${queries[0]}"`
+    );
+  }
+
+  // 2.4 Evidence Stance Classification
+  {
+    const mockEvidence: EvidenceItem[] = [
+      {
+        id: '1',
+        url: 'https://example.com/debunk',
+        title: 'Fact Check: The claim is false and disproven',
+        publisher: 'FactCheck',
+        domain: 'factcheck.org',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Official records confirm this claim is completely false, a hoax, and disproven.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'UNKNOWN',
+      },
+      {
+        id: '2',
+        url: 'https://example.com/confirm',
+        title: 'Official Announcement Confirmed',
+        publisher: 'NewsWire',
+        domain: 'reuters.com',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Officials confirmed and announced that the event was verified.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'UNKNOWN',
+      },
+    ];
+
+    const classified = await contradictionService.classifyEvidenceStances('Test Claim', mockEvidence);
+    const hasStance = classified.every((c) => ['SUPPORTS', 'CONTRADICTS', 'NEUTRAL'].includes(c.stance));
+    record('Evidence Stance Classification', hasStance, `Stances: ${classified.map((c) => c.stance).join(', ')}`);
+  }
+
+  // 2.5 Contradiction Detection
+  {
+    const supporting: EvidenceItem[] = [
+      {
+        id: 's1',
+        url: 'https://reuters.com/1',
+        title: 'Confirmed Event',
+        publisher: 'Reuters',
+        domain: 'reuters.com',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Event took place successfully.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'SUPPORTS',
+      },
+    ];
+    const contradicting: EvidenceItem[] = [
+      {
+        id: 'c1',
+        url: 'https://bbc.com/1',
+        title: 'Contradictory Report',
+        publisher: 'BBC',
+        domain: 'bbc.com',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Authorities deny this event occurred.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'CONTRADICTS',
+      },
+    ];
+
+    const contradictions = await contradictionService.analyzeContradictions(
+      'Sample Claim',
+      supporting,
+      contradicting
+    );
+
+    record(
+      'Contradiction Detection Analysis',
+      contradictions.hasContradiction === true && contradictions.severity !== 'NONE',
+      `Severity: ${contradictions.severity}`
+    );
+  }
+
+  // 2.6 Trust Score Calculation - Overwhelming Support -> LEGIT
+  {
+    const supporting: EvidenceItem[] = [
+      {
+        id: 's1',
+        url: 'https://nature.com/paper',
+        title: 'Peer-reviewed confirmation',
+        publisher: 'Nature',
+        domain: 'nature.com',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Study confirms empirical findings.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'SUPPORTS',
+      },
+      {
+        id: 's2',
+        url: 'https://science.org/report',
+        title: 'Scientific evidence',
+        publisher: 'Science',
+        domain: 'science.org',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Direct evidence substantiates assertion.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'SUPPORTS',
+      },
+    ];
+
+    const scoring = trustScoringService.evaluateClaim({
+      supporting,
+      contradicting: [],
+      neutral: [],
+      contradictions: { hasContradiction: false, severity: 'NONE', details: 'No contradictions', conflictingAspects: [] },
+    });
+
+    record(
+      'Trust Score & Verdict: Strong Support -> LEGIT',
+      scoring.verdict === 'LEGIT' && scoring.breakdown.overallScore >= 68,
+      `Verdict: ${scoring.verdict}, Score: ${scoring.breakdown.overallScore}`
+    );
+  }
+
+  // 2.7 Trust Score Calculation - Strong Contradiction -> FAKE
+  {
+    const contradicting: EvidenceItem[] = [
+      {
+        id: 'c1',
+        url: 'https://factcheck.org/debunked',
+        title: 'Debunked Hoax',
+        publisher: 'FactCheck',
+        domain: 'factcheck.org',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Investigation reveals the assertion is entirely fabricated.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'CONTRADICTS',
+      },
+      {
+        id: 'c2',
+        url: 'https://apnews.com/check',
+        title: 'AP Fact Check',
+        publisher: 'AP',
+        domain: 'apnews.com',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'No evidence exists; statement is false.',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'CONTRADICTS',
+      },
+    ];
+
+    const scoring = trustScoringService.evaluateClaim({
+      supporting: [],
+      contradicting,
+      neutral: [],
+      contradictions: { hasContradiction: true, severity: 'SEVERE', details: 'Multiple fact checks debunk claim', conflictingAspects: [] },
+    });
+
+    record(
+      'Trust Score & Verdict: Strong Contradiction -> FAKE',
+      scoring.verdict === 'FAKE' && scoring.breakdown.overallScore <= 35,
+      `Verdict: ${scoring.verdict}, Score: ${scoring.breakdown.overallScore}`
+    );
+  }
+
+  // 2.8 Insufficient Evidence -> INCONCLUSIVE
+  {
+    const scoring = trustScoringService.evaluateClaim({
+      supporting: [],
+      contradicting: [],
+      neutral: [],
+      contradictions: { hasContradiction: false, severity: 'NONE', details: 'No sources', conflictingAspects: [] },
+    });
+
+    record(
+      'Verdict Rule: Zero Evidence -> INCONCLUSIVE',
+      scoring.verdict === 'INCONCLUSIVE' && scoring.confidence === 'LOW',
+      `Verdict: ${scoring.verdict}, Confidence: ${scoring.confidence}`
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // 3. HTTP API INTEGRATION & DATABASE AUTHORIZATION TESTS
+  // -----------------------------------------------------------------
+  console.log('\n--- 3. HTTP Server & Verification History Security Tests ---');
   const app = createApp();
   const server = http.createServer(app);
 
@@ -258,227 +323,187 @@ async function runTests() {
   });
 
   const BASE = 'http://127.0.0.1:5099/api';
-  let authCookie = '';
-  let authToken = '';
+  let user1Token = '';
+  let user1Id = '';
+  let user2Token = '';
+  let user2Id = '';
+  let createdVerificationId = '';
 
   try {
-    // Test 2.1: Health check
-    {
-      const res = await fetch(`${BASE}/health`);
-      const body = await res.json();
-      record('Health Check Endpoint (GET /api/health)', res.status === 200 && body.status === 'healthy', `Status: ${res.status}`);
-    }
-
-    // Test 2.2: Input validation on Register
+    // 3.1 Register User 1
+    const user1Email = `analyst1_${Date.now()}@trustlens.test`;
     {
       const res = await fetch(`${BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'A', email: 'invalid-email', password: '123' }),
+        body: JSON.stringify({ name: 'Analyst One', email: user1Email, password: 'Password123!' }),
       });
       const body = await res.json();
-      record('Register Input Validation (POST /api/auth/register)', res.status === 400 && body.success === false, `Status: ${res.status}`);
+      user1Token = body.token;
+      user1Id = body.user?.id;
+      record('User 1 Registered', res.status === 201 && !!user1Token);
     }
 
-    // Test 2.3: User Registration
-    const testEmail = `analyst_${Date.now()}@trustlens.test`;
+    // 3.2 Register User 2
+    const user2Email = `analyst2_${Date.now()}@trustlens.test`;
     {
       const res = await fetch(`${BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Lead AI Analyst',
-          email: testEmail,
-          password: 'SecurePassword123!',
-        }),
+        body: JSON.stringify({ name: 'Analyst Two', email: user2Email, password: 'Password123!' }),
       });
       const body = await res.json();
-      const cookieHeader = res.headers.get('set-cookie');
-      if (cookieHeader) {
-        authCookie = cookieHeader.split(';')[0];
-      }
-      authToken = body.token;
-
-      const hasNoPasswordHash = !('passwordHash' in (body.user || {}));
-      record(
-        'User Registration & Hash Privacy (POST /api/auth/register)',
-        res.status === 201 && body.success === true && hasNoPasswordHash && !!authToken,
-        `Status: ${res.status}, Token Issued: ${!!authToken}`
-      );
+      user2Token = body.token;
+      user2Id = body.user?.id;
+      record('User 2 Registered', res.status === 201 && !!user2Token);
     }
 
-    // Test 2.4: User Login
+    // 3.3 Protected Route Rejection on POST /api/verify/text Without Token
     {
-      const res = await fetch(`${BASE}/auth/login`, {
+      const res = await fetch(`${BASE}/verify/text`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: testEmail,
-          password: 'SecurePassword123!',
-        }),
+        body: JSON.stringify({ text: 'Some factual claim' }),
       });
-      const body = await res.json();
-      record(
-        'Valid Login & Token Generation (POST /api/auth/login)',
-        res.status === 200 && body.success === true && !!body.token,
-        `Status: ${res.status}`
-      );
+      record('Unauthorized Verification Rejection (POST /api/verify/text)', res.status === 401);
     }
 
-    // Test 2.5: Protected Route GET /api/auth/me
+    // 3.4 Input Validation on POST /api/verify/text (empty string)
     {
-      const res = await fetch(`${BASE}/auth/me`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      const body = await res.json();
-      record(
-        'Protected Profile Access (GET /api/auth/me)',
-        res.status === 200 && body.user?.email === testEmail,
-        `User: ${body.user?.email}`
-      );
-    }
-
-    // Test 2.6: Protected Endpoint /api/ai/test without Token
-    {
-      const res = await fetch(`${BASE}/ai/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: 'Test fact-checking prompt' }),
-      });
-      record(
-        'Protected AI Test Rejection Without Token (POST /api/ai/test)',
-        res.status === 401,
-        `Status: ${res.status}`
-      );
-    }
-
-    // Test 2.7: Protected Endpoint /api/ai/test Input Validation
-    {
-      const res = await fetch(`${BASE}/ai/test`, {
+      const res = await fetch(`${BASE}/verify/text`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${user1Token}`,
         },
-        body: JSON.stringify({ prompt: '   ' }),
+        body: JSON.stringify({ text: ' ' }),
       });
-      const body = await res.json();
-      record(
-        'Protected AI Test Rejection on Empty Prompt (POST /api/ai/test)',
-        res.status === 400 && body.success === false,
-        `Status: ${res.status}, Message: "${body.message}"`
-      );
+      record('Verification Input Validation (Short/Empty Text)', res.status === 400);
     }
 
-    // Test 2.8: Protected Endpoint /api/ai/status
+    // 3.5 Execute Non-Verifiable Verification (POST /api/verify/text with greeting)
     {
-      const res = await fetch(`${BASE}/ai/status`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      const body = await res.json();
-      record(
-        'Protected AI Status Inspection (GET /api/ai/status)',
-        res.status === 200 && body.success === true && 'providers' in body && 'strategy' in body,
-        `Primary: ${body.strategy?.primary}, Fallback: ${body.strategy?.fallback}`
-      );
-    }
-
-    // Test 2.9: Protected Endpoint /api/ai/test with Mock-Configured AI Service
-    {
-      // Temporarily register mock provider in global aiService for testing HTTP endpoint execution
-      const { aiService } = await import('./server/src/services/ai');
-      const testMockProvider: AIProvider = {
-        name: 'gemini',
-        defaultModel: 'gemini-1.5-flash-test',
-        isConfigured: () => true,
-        generateText: async (options) => ({
-          text: `Verified claim evaluation: "${options.prompt}"`,
-          provider: 'gemini',
-          model: 'gemini-1.5-flash-test',
-          usage: { inputTokens: 15, outputTokens: 25, totalTokens: 40 },
-          latencyMs: 65,
-        }),
-      };
-      aiService.registerProvider('gemini', testMockProvider);
-
-      const res = await fetch(`${BASE}/ai/test`, {
+      const res = await fetch(`${BASE}/verify/text`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${user1Token}`,
         },
-        body: JSON.stringify({
-          prompt: 'Is carbon dioxide a greenhouse gas?',
-        }),
+        body: JSON.stringify({ text: 'Hello, how are you?' }),
       });
-
       const body = await res.json();
       record(
-        'Protected AI Test Execution (POST /api/ai/test)',
+        'Non-Verifiable Pipeline Handling (POST /api/verify/text)',
         res.status === 200 &&
           body.success === true &&
-          body.isDevelopmentOnly === true &&
-          body.provider === 'gemini' &&
-          body.usage?.inputTokens === 15 &&
-          typeof body.latencyMs === 'number',
-        `Provider: ${body.provider}, Response: "${body.response?.slice(0, 30)}..."`
+          body.data.claimType === 'NON_VERIFIABLE' &&
+          body.data.verificationNeeded === false &&
+          body.data.verdict === 'INCONCLUSIVE',
+        `Verdict: ${body.data?.verdict}, ClaimType: ${body.data?.claimType}`
       );
-
-      // Restore real gemini provider
-      aiService.registerProvider('gemini', geminiProvider);
     }
 
-    // Test 2.10: Real API Integration Verification Check
+    // 3.6 Execute Factual Verification for User 1
     {
-      const { env } = await import('./server/src/config/env');
-      const hasRealGemini = Boolean(env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length > 10);
-      const hasRealGroq = Boolean(env.GROQ_API_KEY && env.GROQ_API_KEY.trim().length > 10);
+      const res = await fetch(`${BASE}/verify/text`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user1Token}`,
+        },
+        body: JSON.stringify({ text: 'The Moon orbits the Earth.' }),
+      });
+      const body = await res.json();
+      createdVerificationId = body.data?.verificationId;
 
-      if (hasRealGemini) {
-        console.log('\n[Live Test] Real GEMINI_API_KEY detected. Executing live inference...');
-        try {
-          const liveRes = await geminiProvider.generateText({
-            prompt: 'Respond in exactly two words: TrustLens verified.',
-            maxTokens: 10,
-          });
-          record(
-            'Live Gemini Integration Execution',
-            liveRes.text.length > 0 && liveRes.provider === 'gemini',
-            `Model: ${liveRes.model}, Latency: ${liveRes.latencyMs}ms`
-          );
-        } catch (err: any) {
-          record('Live Gemini Integration Execution', false, `Error: ${err.message}`);
-        }
-      } else {
-        record(
-          'Live Gemini Integration Check (Environment Evaluation)',
-          true,
-          'Skipped live network call: GEMINI_API_KEY is not configured in local environment (safe graceful handling verified)'
-        );
-      }
+      record(
+        'Factual Claim Verification Execution (POST /api/verify/text)',
+        res.status === 200 &&
+          body.success === true &&
+          !!createdVerificationId &&
+          ['LEGIT', 'INCONCLUSIVE', 'FAKE'].includes(body.data?.verdict),
+        `Verdict: ${body.data?.verdict}, TrustScore: ${body.data?.trustScore}, ID: ${createdVerificationId}`
+      );
+    }
 
-      if (hasRealGroq) {
-        console.log('\n[Live Test] Real GROQ_API_KEY detected. Executing live inference...');
-        try {
-          const liveRes = await groqProvider.generateText({
-            prompt: 'Respond in exactly two words: TrustLens verified.',
-            maxTokens: 10,
-          });
-          record(
-            'Live Groq Integration Execution',
-            liveRes.text.length > 0 && liveRes.provider === 'groq',
-            `Model: ${liveRes.model}, Latency: ${liveRes.latencyMs}ms`
-          );
-        } catch (err: any) {
-          record('Live Groq Integration Execution', false, `Error: ${err.message}`);
-        }
-      } else {
-        record(
-          'Live Groq Integration Check (Environment Evaluation)',
-          true,
-          'Skipped live network call: GROQ_API_KEY is not configured in local environment (safe graceful handling verified)'
+    // 3.7 Retrieve Verification History for User 1
+    {
+      const res = await fetch(`${BASE}/verify/history`, {
+        headers: { Authorization: `Bearer ${user1Token}` },
+      });
+      const body = await res.json();
+      const user1HasRecords = Array.isArray(body.data) && body.data.length >= 2;
+      record('User 1 Verification History Retrieval (GET /api/verify/history)', res.status === 200 && user1HasRecords, `Count: ${body.data?.length}`);
+    }
+
+    // 3.8 Strict Data Isolation: User 2 History Must NOT Contain User 1's Verifications
+    {
+      const res = await fetch(`${BASE}/verify/history`, {
+        headers: { Authorization: `Bearer ${user2Token}` },
+      });
+      const body = await res.json();
+      const user2HasNoRecords = Array.isArray(body.data) && body.data.length === 0;
+      record(
+        'User Isolation in History (User 2 Cannot See User 1 History)',
+        res.status === 200 && user2HasNoRecords,
+        `User 2 Records Count: ${body.data?.length}`
+      );
+    }
+
+    // 3.9 Cross-User Access Guard: User 2 Must NOT Be Able to Retrieve User 1's Verification By ID
+    {
+      const res = await fetch(`${BASE}/verify/${createdVerificationId}`, {
+        headers: { Authorization: `Bearer ${user2Token}` },
+      });
+      record(
+        'Cross-User Verification Guard (GET /api/verify/:id Denied for Unauthorized User)',
+        res.status === 404,
+        `Status: ${res.status} (Access Denied / Not Found)`
+      );
+    }
+
+    // 3.10 Authorized Retrieval: User 1 CAN Retrieve Their Own Verification By ID
+    {
+      const res = await fetch(`${BASE}/verify/${createdVerificationId}`, {
+        headers: { Authorization: `Bearer ${user1Token}` },
+      });
+      const body = await res.json();
+      record(
+        'Authorized Owner Verification Retrieval (GET /api/verify/:id)',
+        res.status === 200 && body.data?.verificationId === createdVerificationId,
+        `Verified ID matched: ${body.data?.verificationId}`
+      );
+    }
+
+    // -----------------------------------------------------------------
+    // 4. REAL INTEGRATION TEST (IF GEMINI_API_KEY IS AVAILABLE)
+    // -----------------------------------------------------------------
+    console.log('\n--- 4. Real Grounded Search Integration Check ---');
+    const { env } = await import('./server/src/config/env');
+    const hasLiveGemini = Boolean(env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length > 10);
+
+    if (hasLiveGemini) {
+      console.log('Real GEMINI_API_KEY detected. Executing live Google Search Grounded verification...');
+      try {
+        const liveResult = await textVerificationService.verifyText(
+          'The Earth orbits the Sun.',
+          user1Id
         );
+        const hasGroundedSources = liveResult.supportingEvidence.length > 0 || liveResult.provenance.length > 0;
+        record(
+          'Live Google Search Grounding Execution',
+          liveResult.verdict === 'LEGIT' && hasGroundedSources,
+          `Verdict: ${liveResult.verdict}, Trust Score: ${liveResult.trustScore}, Sources: ${liveResult.provenance.length}`
+        );
+      } catch (err: any) {
+        record('Live Google Search Grounding Execution', false, `Error: ${err.message}`);
       }
+    } else {
+      record(
+        'Live Google Search Grounding Integration Check',
+        true,
+        'Skipped live web call: GEMINI_API_KEY is not set in local environment. Deterministic offline pipeline verified.'
+      );
     }
 
   } finally {

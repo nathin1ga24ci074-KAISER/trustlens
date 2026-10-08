@@ -1,4 +1,4 @@
-import { RegisterInput, LoginInput, AuthResponse, User } from '@trustlens/shared';
+import { RegisterInput, LoginInput, AuthResponse, User, TextVerificationResult, VerificationHistoryItem } from '@trustlens/shared';
 
 const API_BASE = '/api';
 
@@ -118,6 +118,26 @@ class ApiService {
     return this.request('/ai/test', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  // Verification Methods (Protected)
+  async verifyText(text: string): Promise<{ success: boolean; data: TextVerificationResult }> {
+    return this.request('/verify/text', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  async getVerification(id: string): Promise<{ success: boolean; data: TextVerificationResult }> {
+    return this.request(`/verify/${id}`, {
+      method: 'GET',
+    });
+  }
+
+  async getHistory(): Promise<{ success: boolean; data: VerificationHistoryItem[] }> {
+    return this.request('/verify/history', {
+      method: 'GET',
     });
   }
 }

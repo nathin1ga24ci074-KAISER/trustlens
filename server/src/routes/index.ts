@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import authRoutes from './auth.routes';
 import aiRoutes from './ai.routes';
+import verificationRoutes from './verification.routes';
 
 const router = Router();
 
@@ -19,5 +20,8 @@ router.use('/auth', authRoutes);
 
 // AI Provider Foundation routes (diagnostic & execution)
 router.use('/ai', aiRoutes);
+
+// Evidence-backed verification routes
+router.use('/verify', verificationRoutes);
 
 export default router;

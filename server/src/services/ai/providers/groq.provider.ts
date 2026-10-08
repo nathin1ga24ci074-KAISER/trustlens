@@ -17,7 +17,7 @@ export class GroqProvider implements AIProvider {
   private client: Groq | null = null;
 
   constructor() {
-    this.defaultModel = env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+    this.defaultModel = env.GROQ_MODEL || 'qwen/qwen3.8-27b';
   }
 
   isConfigured(): boolean {
@@ -46,7 +46,7 @@ export class GroqProvider implements AIProvider {
     const client = this.getClient();
     const modelName = options.model || this.defaultModel;
     const startTime = Date.now();
-    const timeoutMs = options.timeoutMs || 30000;
+    const timeoutMs = options.timeoutMs || 15000;
 
     try {
       const messages: Array<{ role: 'system' | 'user'; content: string }> = [];

@@ -21,6 +21,7 @@ export interface ValidatedImageInput {
   sizeBytes: number;
   originalFilename?: string;
   userContext?: string;
+  verificationId?: string;
 }
 
 export interface RawVisualUnderstanding {

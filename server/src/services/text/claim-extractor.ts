@@ -107,8 +107,13 @@ Respond ONLY with a valid JSON object matching this schema:
    */
   async generateSearchQueries(claim: string, entities: string[]): Promise<string[]> {
     const systemPrompt = `You are a search intelligence specialist for a fact-checking organization.
-Given a factual claim, generate between 2 and 3 independent, neutral search queries to retrieve verification evidence from news, government archives, and scientific studies.
-Include both a direct verification query and an objective fact-check query.
+Given a factual claim, generate 2 to 3 focused, neutral search queries to retrieve verification evidence from news, fact-checking archives, and public reporting.
+CRITICAL RULES:
+1. Strip sensationalized prefixes like "BREAKING:", "ALERT:", "JUST IN:", etc.
+2. Formulate queries investigating BOTH:
+   - The specific disputed assertion or detail (e.g. key figures, organizations, and specific actions).
+   - The broader reported event or incident to retrieve foundational context.
+3. DO NOT wrap entire sentences in quotes. Use keywords or short entity phrases.
 Respond ONLY with a JSON array of strings, for example: ["query 1", "query 2"]`;
 
     const prompt = `Claim: "${claim}"\nEntities: ${entities.join(', ') || 'none'}`;
@@ -124,6 +129,7 @@ Respond ONLY with a JSON array of strings, for example: ["query 1", "query 2"]`;
       if (Array.isArray(parsed) && parsed.length > 0) {
         const validQueries = parsed
           .filter((q) => typeof q === 'string' && q.trim().length > 3)
+          .map((q) => q.replace(/^["'“”]|["'“”]$/g, '').trim())
           .slice(0, 3);
         if (validQueries.length > 0) {
           return validQueries;
@@ -133,11 +139,33 @@ Respond ONLY with a JSON array of strings, for example: ["query 1", "query 2"]`;
       console.warn('[ClaimExtractor] Query generation failed, using fallback query:', err);
     }
 
-    // Deterministic fallback queries
-    return [
-      `"${claim}" fact check`,
-      `${claim} official source`,
+    // Clean claim by removing sensational headlines, quotes, punctuation
+    const cleanClaim = claim
+      .replace(/^(breaking|alert|just in|exclusive|urgent|update):\s*/i, '')
+      .replace(/^["'“”]|["'“”]$/g, '')
+      .trim();
+
+    const fallbackQueries: string[] = [
+      `${cleanClaim} fact check`,
     ];
+
+    if (entities && entities.length > 0) {
+      // Query preserving key entities and the core claim
+      fallbackQueries.push(`${entities.join(' ')} ${cleanClaim.slice(0, 60)}`);
+      // Broader incident query
+      fallbackQueries.push(`${entities.join(' ')} incident news`);
+    } else {
+      // Shorter keyword query
+      const keywords = cleanClaim
+        .split(/\s+/)
+        .filter((w) => w.length > 3)
+        .slice(0, 6)
+        .join(' ');
+      fallbackQueries.push(`${keywords} fact check`);
+      fallbackQueries.push(`${cleanClaim} official source`);
+    }
+
+    return Array.from(new Set(fallbackQueries)).slice(0, 3);
   }
 
   private safeParseJson(raw: string): any {

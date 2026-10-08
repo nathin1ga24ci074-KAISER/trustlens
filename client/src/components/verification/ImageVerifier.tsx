@@ -381,6 +381,22 @@ export const ImageVerifier: React.FC = () => {
                   <span>Confidence: <strong className="text-slate-200">{result.confidence}</strong></span>
                   <span>Claims Verified: <strong className="text-slate-200">{result.claims.length}</strong></span>
                   <span>OCR Elements: <strong className="text-slate-200">{result.extractedText.length}</strong></span>
+                  {result.searchStatus && (
+                    <span>
+                      Search Grounding:{' '}
+                      <strong
+                        className={
+                          result.searchStatus === 'SUCCESS'
+                            ? 'text-emerald-400'
+                            : result.searchStatus === 'RATE_LIMITED'
+                            ? 'text-amber-400'
+                            : 'text-slate-200'
+                        }
+                      >
+                        {result.searchStatus}
+                      </strong>
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -642,10 +658,49 @@ export const ImageVerifier: React.FC = () => {
                           </div>
                         )}
 
+                        {/* Neutral / Background Evidence */}
+                        {claim.neutralEvidence && claim.neutralEvidence.length > 0 && (
+                          <div>
+                            <span className="text-xs font-semibold text-slate-400 block mb-1.5">
+                              ℹ Background Event Context ({claim.neutralEvidence.length})
+                            </span>
+                            <div className="space-y-2">
+                              {claim.neutralEvidence.map((ev) => (
+                                <div
+                                  key={ev.id}
+                                  className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/60 text-xs"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-semibold text-slate-300">
+                                      {ev.publisher} ({ev.domain})
+                                    </span>
+                                    {ev.url && (
+                                      <a
+                                        href={ev.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-teal-400 hover:underline flex items-center gap-1"
+                                      >
+                                        Source <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    )}
+                                  </div>
+                                  <p className="text-slate-400 mt-1">{ev.snippet}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         {claim.supportingEvidence.length === 0 && claim.contradictingEvidence.length === 0 && (
-                          <p className="text-xs text-slate-400">
-                            No external citations met high-confidence threshold for this assertion.
-                          </p>
+                          <div className="p-3 rounded-lg bg-slate-900/40 border border-slate-800 text-xs text-slate-400 space-y-1">
+                            <p>{claim.searchExplanation || 'No external citations met high-confidence threshold for this assertion.'}</p>
+                            {claim.searchStatus === 'RATE_LIMITED' && (
+                              <p className="text-[11px] text-amber-400/90">
+                                Notice: Google search grounding was rate-limited or throttled by provider. TrustLens strictly refuses to fabricate citations.
+                              </p>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

@@ -302,6 +302,8 @@ export interface ImageClaimVerificationResult {
     domain: string;
     relationship?: string;
   }>;
+  searchStatus?: 'SUCCESS' | 'NO_RESULTS' | 'RATE_LIMITED' | 'UNAVAILABLE' | 'ERROR';
+  searchExplanation?: string;
 }
 
 export interface ImageVerificationResult {
@@ -339,6 +341,8 @@ export interface ImageVerificationResult {
   reasoning: string;
   limitations: string[];
   createdAt: string;
+  searchStatus?: 'SUCCESS' | 'NO_RESULTS' | 'RATE_LIMITED' | 'UNAVAILABLE' | 'PARTIAL';
+  searchExplanation?: string;
 }
 
 export interface VerifyImageResponse {

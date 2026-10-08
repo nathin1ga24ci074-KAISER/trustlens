@@ -28,6 +28,10 @@ export interface EvidenceSearchResult {
   query: string;
   items: EvidenceItem[];
   rawMetadata?: GroundingMetadataInfo | null;
+  status?: 'SUCCESS' | 'NO_RESULTS' | 'RATE_LIMITED' | 'UNAVAILABLE' | 'ERROR';
+  errorMessage?: string;
+  provider?: string;
+  model?: string;
 }
 
 export interface EvidenceProvider {

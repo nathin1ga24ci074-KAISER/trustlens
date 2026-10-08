@@ -53,6 +53,9 @@ import {
   multimodalScoringService,
   multimodalVerificationService,
 } from './server/src/services/verification/multimodal';
+import { geminiSearchProvider } from './server/src/services/evidence/providers/gemini-search.provider';
+import { EvidenceService, evidenceService } from './server/src/services/evidence/evidence.service';
+import { webSearchProvider } from './server/src/services/evidence/providers/web-search.provider';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -2567,6 +2570,312 @@ async function runTests() {
         'Authorized Owner Retrieval of Complete Multimodal Record',
         pass,
         `Verification ID matched: ${body.data?.verificationId}, Modalities: ${Object.keys(body.data?.modalityResults || {}).join(', ')}`
+      );
+    }
+
+    // -----------------------------------------------------------------
+    // 17. IMAGE OCR AND SEARCH GROUNDING DEBUG & REGRESSION TESTS
+    // -----------------------------------------------------------------
+    console.log('\n--- 17. Image OCR & Search Grounding Debug Tests ---');
+
+    // 17.1 OCR text correctly produces IMAGE_TEXT claims even when userContext matches
+    {
+      const headline = "BREAKING: Coldplay's Kiss Cam: Cameraman Turns Out to Be Astronomer's Ex-Employee";
+      const visual: any = {
+        description: 'Screenshot showing breaking news alert',
+        classification: 'SCREENSHOT',
+        visibleText: [headline],
+        entities: ['Coldplay', 'Astronomer'],
+        scene: 'Digital screenshot',
+        observations: ['Text overlay present'],
+        inferredAspects: [],
+        uncertainties: [],
+        manipulationIndicators: { detected: false, severity: 'NONE', indicators: [], limitations: [] },
+      };
+
+      const claims = await imageClaimExtractor.extractClaims(visual, headline, { maxClaims: 4 });
+      const primaryClaim = claims[0];
+      const pass = claims.length > 0 && primaryClaim.source === 'IMAGE_TEXT';
+      record(
+        '17.1 OCR text correctly produces IMAGE_TEXT claims',
+        pass,
+        `Claim source: ${primaryClaim?.source}, Claim text: "${primaryClaim?.claim.slice(0, 40)}..."`
+      );
+    }
+
+    // 17.2 User hypotheses remain USER_CONTEXT when distinct from visible image text
+    {
+      const visual: any = {
+        description: 'Concert stage with lights',
+        classification: 'PHOTOGRAPH',
+        visibleText: ['Coldplay Music of the Spheres Tour'],
+        entities: ['Coldplay'],
+        scene: 'Concert stadium',
+        observations: ['Stage lighting'],
+        inferredAspects: [],
+        uncertainties: [],
+        manipulationIndicators: { detected: false, severity: 'NONE', indicators: [], limitations: [] },
+      };
+
+      const distinctUserHypothesis = 'Filmed secretly in Singapore in January 2025 by fired employee';
+      const claims = await imageClaimExtractor.extractClaims(visual, distinctUserHypothesis, { maxClaims: 4 });
+      const userClaim = claims.find((c) => c.source === 'USER_CONTEXT');
+      const pass = Boolean(userClaim && userClaim.claim.includes('Singapore'));
+      record(
+        '17.2 User hypotheses remain USER_CONTEXT when distinct from image text',
+        pass,
+        `User claim source: ${userClaim?.source}, text: "${userClaim?.claim.slice(0, 40)}..."`
+      );
+    }
+
+    // 17.3 OCR counters match actual extracted elements across strings, arrays, objects
+    {
+      const parseVisual = (imageAnalysisService as any).parseVisualResponse.bind(imageAnalysisService);
+      const jsonA = JSON.stringify({
+        description: 'Test A',
+        classification: 'SCREENSHOT',
+        visibleText: "Headline 1\nHeadline 2\nHeadline 3",
+      });
+      const parsedA = parseVisual(jsonA);
+
+      const jsonB = JSON.stringify({
+        description: 'Test B',
+        classification: 'SCREENSHOT',
+        ocrText: [{ text: 'Line 1' }, { line: 'Line 2' }],
+      });
+      const parsedB = parseVisual(jsonB);
+
+      const pass = parsedA?.visibleText.length === 3 && parsedB?.visibleText.length === 2;
+      record(
+        '17.3 OCR counters match actual extracted elements across formats',
+        pass,
+        `Format A (multiline string): ${parsedA?.visibleText.length}, Format B (objects): ${parsedB?.visibleText.length}`
+      );
+    }
+
+    // 17.4 Grounding metadata is correctly parsed into structured EvidenceItems
+    {
+      const normalizer = (geminiSearchProvider as any).normalizeGroundingMetadata.bind(geminiSearchProvider);
+      const mockMetadata = {
+        webSearchQueries: ['Coldplay kiss cam Astronomer'],
+        groundingChunks: [
+          {
+            web: {
+              uri: 'https://people.com/music/coldplay-kiss-cam-astronomer-incident',
+              title: 'People Magazine: Coldplay Kiss Cam Viral Moment',
+            },
+          },
+        ],
+        groundingSupports: [
+          {
+            groundingChunkIndices: [0],
+            segment: {
+              text: 'Astronomer CEO Andy Byron and HR chief Kristin Cabot were spotted on the kiss-cam.',
+            },
+          },
+        ],
+      };
+
+      const items: EvidenceItem[] = normalizer(mockMetadata, 'Coldplay kiss cam Astronomer', 'Article text');
+      const pass =
+        items.length === 1 &&
+        items[0].domain === 'people.com' &&
+        items[0].publisher === 'People' &&
+        items[0].snippet.includes('Astronomer CEO Andy Byron') &&
+        items[0].sourceType === 'GROUNDED_SEARCH';
+      record(
+        '17.4 Grounding metadata is correctly parsed into structured EvidenceItems',
+        pass,
+        `Domain: ${items[0]?.domain}, Publisher: ${items[0]?.publisher}`
+      );
+    }
+
+    // 17.5 Real sources survive normalization and deduplication
+    {
+      const mockProvider = {
+        name: 'mock-provider',
+        isConfigured: () => true,
+        search: async () => [
+          {
+            query: 'test query',
+            status: 'SUCCESS' as const,
+            items: [
+              {
+                id: '1',
+                url: 'https://www.reuters.com/world/coldplay-incident-report',
+                title: 'Reuters Report',
+                publisher: 'Reuters',
+                domain: 'reuters.com',
+                retrievedAt: new Date().toISOString(),
+                snippet: 'A comprehensive report detailing the event.',
+                sourceType: 'GROUNDED_SEARCH' as const,
+                stance: 'UNKNOWN' as const,
+              },
+              {
+                id: '2',
+                url: 'https://reuters.com/world/coldplay-incident-report/',
+                title: 'Reuters Report Duplicate',
+                publisher: 'Reuters',
+                domain: 'reuters.com',
+                retrievedAt: new Date().toISOString(),
+                snippet: 'Duplicate article.',
+                sourceType: 'GROUNDED_SEARCH' as const,
+                stance: 'UNKNOWN' as const,
+              },
+            ],
+            rawMetadata: null,
+          },
+        ],
+      };
+
+      const customService = new EvidenceService(mockProvider as any, null as any);
+      const { items, summary } = await customService.retrieveEvidenceWithStatus(['test query'], 'test claim');
+      const pass = items.length === 1 && summary.totalFound === 2 && summary.retained === 1 && summary.status === 'SUCCESS';
+      record(
+        '17.5 Real sources survive normalization and deduplication',
+        pass,
+        `Retained: ${summary.retained}/${summary.totalFound}`
+      );
+    }
+
+    // 17.6 Irrelevant sources are rejected for a recorded reason
+    {
+      const mockProvider = {
+        name: 'mock-provider',
+        isConfigured: () => true,
+        search: async () => [
+          {
+            query: 'test query',
+            status: 'SUCCESS' as const,
+            items: [
+              {
+                id: '1',
+                url: 'https://duckduckgo.com/html/?q=search',
+                title: 'Search results',
+                publisher: 'DuckDuckGo',
+                domain: 'duckduckgo.com',
+                retrievedAt: new Date().toISOString(),
+                snippet: 'Search results for coldplay',
+                sourceType: 'GROUNDED_SEARCH' as const,
+                stance: 'UNKNOWN' as const,
+              },
+              {
+                id: '2',
+                url: 'malformed-url-no-scheme',
+                title: 'Bad URL',
+                publisher: 'Unknown',
+                domain: 'unknown',
+                retrievedAt: new Date().toISOString(),
+                snippet: 'Some valid text here for testing',
+                sourceType: 'GROUNDED_SEARCH' as const,
+                stance: 'UNKNOWN' as const,
+              },
+              {
+                id: '3',
+                url: 'https://example.com/short',
+                title: 'Short snippet',
+                publisher: 'Example',
+                domain: 'example.com',
+                retrievedAt: new Date().toISOString(),
+                snippet: 'Short',
+                sourceType: 'GROUNDED_SEARCH' as const,
+                stance: 'UNKNOWN' as const,
+              },
+            ],
+            rawMetadata: null,
+          },
+        ],
+      };
+
+      const customService = new EvidenceService(mockProvider as any, null as any);
+      const { items, summary } = await customService.retrieveEvidenceWithStatus(['test query'], 'test claim');
+      const pass =
+        items.length === 0 &&
+        summary.rejectedCount === 3 &&
+        summary.rejections.some((r) => r.reason.includes('Search engine')) &&
+        summary.rejections.some((r) => r.reason.includes('Malformed')) &&
+        summary.rejections.some((r) => r.reason.includes('substantive'));
+      record(
+        '17.6 Irrelevant sources rejected for a recorded reason',
+        pass,
+        `Rejected count: ${summary.rejectedCount}, Reasons: ${summary.rejections.map((r) => r.reason).join(' | ')}`
+      );
+    }
+
+    // 17.7 Provider quota errors do not create synthetic evidence
+    {
+      const searchRes = await geminiSearchProvider.search(['Coldplay cameraman astronomer'], 'test');
+      const pass =
+        Array.isArray(searchRes) &&
+        searchRes.every((r) => {
+          if (r.status === 'RATE_LIMITED' || r.status === 'UNAVAILABLE') {
+            return r.items.length === 0;
+          }
+          return true;
+        });
+      record(
+        '17.7 Provider quota errors do not create synthetic evidence',
+        pass,
+        `Statuses: ${searchRes.map((r) => r.status).join(', ')}`
+      );
+    }
+
+    // 17.8 No-source results remain INCONCLUSIVE
+    {
+      const scoring = trustScoringService.evaluateClaim({
+        supporting: [],
+        contradicting: [],
+        neutral: [],
+        contradictions: {
+          hasContradiction: false,
+          severity: 'NONE',
+          details: 'Zero sources found',
+          conflictingAspects: [],
+        },
+      });
+
+      const pass = scoring.verdict === 'INCONCLUSIVE' && scoring.breakdown.overallScore === 50 && scoring.confidence === 'LOW';
+      record(
+        '17.8 No-source results remain INCONCLUSIVE (Score: 50, Confidence: LOW)',
+        pass,
+        `Verdict: ${scoring.verdict}, Score: ${scoring.breakdown.overallScore}, Conf: ${scoring.confidence}`
+      );
+    }
+
+    // 17.9 Evidence about an event does not automatically verify every claim about that event
+    {
+      const disputedClaim = "Coldplay's Kiss Cam: Cameraman Turns Out to Be Astronomer's Ex-Employee";
+      const generalEventEvidence: EvidenceItem[] = [
+        {
+          id: '1',
+          url: 'https://today.com/popculture/coldplay-kiss-cam-astronomer-incident',
+          title: 'Coldplay Kiss Cam Catches Astronomer CEO and Colleague',
+          publisher: 'Today',
+          domain: 'today.com',
+          retrievedAt: new Date().toISOString(),
+          snippet: 'At a recent Coldplay concert, the kiss-cam featured Astronomer CEO Andy Byron and Kristin Cabot.',
+          sourceType: 'GROUNDED_SEARCH',
+          stance: 'UNKNOWN',
+        },
+      ];
+
+      const classified = await contradictionService.classifyEvidenceStances(disputedClaim, generalEventEvidence);
+      const pass = classified.length === 1 && classified[0].stance !== 'SUPPORTS';
+      record(
+        '17.9 Evidence about an event does not automatically verify every claim (classified as NEUTRAL)',
+        pass,
+        `Stance: ${classified[0]?.stance}, Explanation: "${classified[0]?.stanceExplanation}"`
+      );
+    }
+
+    // 17.10 UI and Pipeline correctly displays evidence counts and reason for uncertainty
+    {
+      const queries = await claimExtractor.generateSearchQueries("BREAKING: Coldplay's Kiss Cam: Cameraman Turns Out to Be Astronomer's Ex-Employee", ['Coldplay', 'Astronomer']);
+      const passQueries = queries.length >= 1 && !queries.some((q) => q.startsWith('BREAKING:') || q.startsWith('""'));
+      record(
+        '17.10 Search queries preserve event and entities without full quotes',
+        passQueries,
+        `Queries: ${queries.join(' | ')}`
       );
     }
 

@@ -20,7 +20,7 @@ export const env = {
   AI_PRIMARY_PROVIDER: (process.env.AI_PRIMARY_PROVIDER || 'gemini') as 'gemini' | 'groq',
   AI_FALLBACK_PROVIDER: (process.env.AI_FALLBACK_PROVIDER || 'groq') as 'gemini' | 'groq' | 'none',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
   GROQ_API_KEY: process.env.GROQ_API_KEY || '',
   GROQ_MODEL: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
   // Video Verification Configuration (Stage 6)

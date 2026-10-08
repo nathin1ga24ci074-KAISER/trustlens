@@ -20,11 +20,17 @@ export class ContradictionService {
 
     const systemPrompt = `You are a forensic evidence analyst for a fact-checking platform.
 Given a core claim and a list of web evidence snippets, determine each snippet's factual stance toward the claim.
+
 Stance categories:
-- "SUPPORTS": The evidence confirms, affirms, or validates the factual claim.
-- "CONTRADICTS": The evidence directly disputes, disproves, denies, or contradicts the claim.
-- "NEUTRAL": The evidence discusses the subject/entities but neither proves nor disproves the specific claim.
+- "SUPPORTS": The evidence directly confirms, affirms, or validates the specific factual assertion.
+- "CONTRADICTS": The evidence directly disputes, disproves, denies, debunks, or contradicts the claim (or notes it is satirical/untrue).
+- "NEUTRAL": The evidence discusses the event, entities, or subject but NEITHER proves nor disproves the specific disputed claim.
 - "UNKNOWN": The snippet lacks sufficient context to determine.
+
+CRITICAL RULE ON EVENT vs SPECIFIC DISPUTED SUB-CLAIM:
+- If a snippet merely confirms that an underlying event occurred (e.g., Coldplay concert kiss cam incident), but does NOT confirm or substantiate the specific disputed assertion in the claim (e.g., that the cameraman was an ex-employee), you MUST classify the stance as "NEUTRAL", NOT "SUPPORTS".
+- An article discussing the broader event or background entities is purely NEUTRAL context unless it explicitly validates the specific contested assertion.
+- If a snippet notes that a viral claim is satirical, a rumor, unverified, or a joke, classify as "CONTRADICTS".
 
 Respond ONLY with a JSON array where each entry is:
 {
@@ -72,19 +78,40 @@ Respond ONLY with a JSON array where each entry is:
     }
 
     // Fallback heuristic: check for negative keywords in snippet
+    const claimKeywords = claim
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 4);
+
     return items.map((item) => {
-      const lowerSnippet = item.snippet.toLowerCase();
-      const hasNegation = /\b(false|hoax|debunked|fake|incorrect|not true|no evidence|disproven)\b/.test(lowerSnippet);
-      const hasAffirmation = /\b(confirmed|officially|verified|announced|won|record|truth)\b/.test(lowerSnippet);
+      const lowerSnippet = (item.snippet + ' ' + item.title).toLowerCase();
+      const hasNegation = /\b(false|hoax|debunked|fake|incorrect|not true|no evidence|disproven|unsubstantiated|unverified|parody|satire|fabrication|meme)\b/.test(lowerSnippet);
+      const hasAffirmation = /\b(confirmed|officially|verified|announced|proven|fact|true statement)\b/.test(lowerSnippet);
 
       let stance: EvidenceStance = 'NEUTRAL';
-      if (hasNegation) stance = 'CONTRADICTS';
-      else if (hasAffirmation) stance = 'SUPPORTS';
+      let explanation = 'Discusses related event context without confirming or refuting specific assertion.';
+
+      if (hasNegation) {
+        stance = 'CONTRADICTS';
+        explanation = 'Snippet indicates claim is false, unverified, satirical, or disproven.';
+      } else if (hasAffirmation) {
+        // Only classify as SUPPORTS if snippet has significant keyword overlap with specific claim
+        const matchedKeywords = claimKeywords.filter((k) => lowerSnippet.includes(k));
+        const overlapRatio = claimKeywords.length > 0 ? matchedKeywords.length / claimKeywords.length : 0;
+        if (overlapRatio >= 0.5) {
+          stance = 'SUPPORTS';
+          explanation = 'Snippet contains corroborating language aligning with specific claim.';
+        } else {
+          stance = 'NEUTRAL';
+          explanation = 'Snippet discusses broader event but does not substantiate the specific disputed sub-claim.';
+        }
+      }
 
       return {
         ...item,
         stance,
-        stanceExplanation: 'Classified via linguistic pattern matching.',
+        stanceExplanation: explanation,
       };
     });
   }

@@ -1,6 +1,7 @@
 import { aiService } from '../../ai';
 import { RawVisualUnderstanding, ValidatedImageInput } from './image.types';
 import { ImageClassification } from '@trustlens/shared';
+import { imageDiagnosticLogger } from './image-diagnostic.logger';
 
 const IMAGE_ANALYSIS_SYSTEM_PROMPT = `You are the TrustLens Image Forensic and Visual Analysis Engine.
 Analyze the provided image with high forensic rigor.
@@ -38,7 +39,7 @@ OUTPUT JSON FORMAT ONLY:
     "indicators": ["Specific observation if any"],
     "limitations": ["Visual inspection cannot prove digital generation or authenticity with 100% certainty"]
   }
-}`;
+} `;
 
 export class ImageAnalysisService {
   /**
@@ -47,6 +48,14 @@ export class ImageAnalysisService {
   async analyzeImage(
     input: ValidatedImageInput
   ): Promise<RawVisualUnderstanding> {
+    const vId = input.verificationId || 'unknown-id';
+    imageDiagnosticLogger.log({
+      verificationId: vId,
+      stage: 'VISION_ANALYSIS',
+      status: 'STARTED',
+      message: `Analyzing image (${input.mimeType}, ${(input.sizeBytes / 1024).toFixed(1)} KB)`,
+    });
+
     const userContextPrompt = input.userContext
       ? `\n\nUSER-PROVIDED CONTEXT (HYPOTHESIS ONLY, NOT EVIDENCE):\n"${input.userContext}"\nEvaluate if visible elements match this context.`
       : '';
@@ -70,12 +79,47 @@ export class ImageAnalysisService {
 
       const parsed = this.parseVisualResponse(response.text);
       if (parsed) {
+        imageDiagnosticLogger.log({
+          verificationId: vId,
+          stage: 'VISION_ANALYSIS',
+          status: 'COMPLETED',
+          message: 'Multimodal vision analysis succeeded',
+          data: {
+            classification: parsed.classification,
+            entitiesCount: parsed.entities.length,
+          },
+        });
+
+        imageDiagnosticLogger.log({
+          verificationId: vId,
+          stage: 'OCR_EXTRACTION',
+          status: 'COMPLETED',
+          message: `Extracted ${parsed.visibleText.length} visible OCR text elements`,
+          data: {
+            ocrCount: parsed.visibleText.length,
+            extractedText: parsed.visibleText,
+          },
+        });
+
         return parsed;
       }
     } catch (aiErr: any) {
       console.warn(
         `[ImageAnalysisService] Multimodal vision call failed or unavailable: ${aiErr.message || aiErr}. Employing structured fallback.`
       );
+      imageDiagnosticLogger.log({
+        verificationId: vId,
+        stage: 'VISION_ANALYSIS',
+        status: 'FAILED',
+        message: aiErr.message || String(aiErr),
+      });
+      imageDiagnosticLogger.log({
+        verificationId: vId,
+        stage: 'OCR_EXTRACTION',
+        status: 'SKIPPED',
+        message: 'Multimodal vision provider unavailable, using structured fallback',
+        data: { ocrCount: 0 },
+      });
     }
 
     // Fallback: heuristic analysis when multimodal provider is unavailable or in offline mode
@@ -107,10 +151,49 @@ export class ImageAnalysisService {
         ? parsed.classification
         : 'PHOTOGRAPH';
 
+      // Robust visibleText extraction: supports string, array of strings, array of objects, and property aliases
+      let visibleText: string[] = [];
+      const rawVisible =
+        parsed.visibleText ??
+        parsed.ocrText ??
+        parsed.extractedText ??
+        parsed.visible_text ??
+        parsed.text;
+
+      if (typeof rawVisible === 'string') {
+        visibleText = rawVisible
+          .split(/\r?\n/)
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0);
+      } else if (Array.isArray(rawVisible)) {
+        for (const item of rawVisible) {
+          if (typeof item === 'string') {
+            const lines = item.split(/\r?\n/).map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+            visibleText.push(...lines);
+          } else if (item && typeof item === 'object') {
+            const val = item.text || item.line || item.content || item.value || '';
+            if (typeof val === 'string' && val.trim().length > 0) {
+              visibleText.push(val.trim());
+            }
+          }
+        }
+      }
+
+      // Deduplicate while preserving order
+      const seenOcr = new Set<string>();
+      const dedupedVisibleText: string[] = [];
+      for (const t of visibleText) {
+        const lower = t.toLowerCase();
+        if (!seenOcr.has(lower)) {
+          seenOcr.add(lower);
+          dedupedVisibleText.push(t);
+        }
+      }
+
       return {
         description: parsed.description || 'Image uploaded for visual verification.',
         classification,
-        visibleText: Array.isArray(parsed.visibleText) ? parsed.visibleText : [],
+        visibleText: dedupedVisibleText,
         entities: Array.isArray(parsed.entities) ? parsed.entities : [],
         scene: parsed.scene || 'Visual content',
         possibleEvent: parsed.possibleEvent || null,

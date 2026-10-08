@@ -64,17 +64,32 @@ export class GeminiSearchProvider implements EvidenceProvider {
           query,
           items,
           rawMetadata: groundingMetadata || null,
+          status: items.length > 0 ? 'SUCCESS' : 'NO_RESULTS',
+          provider: this.name,
+          model: modelName,
         });
       } catch (err: any) {
-        console.warn(`[GeminiSearchProvider] Live search grounding for query "${query}" encountered:`, err?.message || err);
+        const errMsg = err?.message || String(err);
+        const isQuota =
+          errMsg.includes('429') ||
+          errMsg.includes('quota') ||
+          errMsg.includes('RESOURCE_EXHAUSTED') ||
+          err?.status === 429;
+        const status = isQuota ? 'RATE_LIMITED' : 'UNAVAILABLE';
+
+        console.warn(`[GeminiSearchProvider] Live search grounding for query "${query}" encountered [${status}]:`, errMsg);
         // CRITICAL EVIDENCE INTEGRITY PRINCIPLE:
         // TrustLens MUST NEVER fabricate, synthesize, or hallucinate citations or web URLs.
         // If live search grounding fails or is rate-limited, return an empty evidence list
-        // so the uncertainty model correctly scores the claim as INCONCLUSIVE / unverified.
+        // and record the exact failure status so the uncertainty engine classifies appropriately.
         results.push({
           query,
           items: [],
           rawMetadata: null,
+          status,
+          errorMessage: errMsg,
+          provider: this.name,
+          model: modelName,
         });
       }
     }
@@ -101,8 +116,13 @@ export class GeminiSearchProvider implements EvidenceProvider {
     // Map chunk index to segment snippets
     const chunkSnippets = new Map<number, string[]>();
     for (const support of supports) {
-      if (support.groundingChunkIndices && support.segment?.text) {
-        for (const idx of support.groundingChunkIndices) {
+      const chunkIndices =
+        support.groundingChunkIndices ||
+        (support as any)?.chunkIndices ||
+        (support as any)?.grounding_chunk_indices;
+
+      if (Array.isArray(chunkIndices) && support.segment?.text) {
+        for (const idx of chunkIndices) {
           const list = chunkSnippets.get(idx) || [];
           list.push(support.segment.text.trim());
           chunkSnippets.set(idx, list);
@@ -112,7 +132,7 @@ export class GeminiSearchProvider implements EvidenceProvider {
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
-      const uri = chunk.web?.uri;
+      const uri = chunk.web?.uri || (chunk as any)?.web?.url || (chunk as any)?.uri || (chunk as any)?.url;
       if (!uri) continue;
 
       let domain = 'unknown';
@@ -123,7 +143,7 @@ export class GeminiSearchProvider implements EvidenceProvider {
         domain = 'web';
       }
 
-      const title = chunk.web?.title || domain;
+      const title = chunk.web?.title || (chunk as any)?.title || domain;
       const matchedSnippets = chunkSnippets.get(i) || [];
       const snippet =
         matchedSnippets.length > 0

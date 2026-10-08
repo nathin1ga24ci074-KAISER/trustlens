@@ -540,9 +540,13 @@ async function runTests() {
         );
         const hasGroundedSources = liveResult.supportingEvidence.length > 0 || liveResult.provenance.length > 0;
         const validVerdict = ['LEGIT', 'INCONCLUSIVE'].includes(liveResult.verdict);
+        const pass =
+          validVerdict &&
+          typeof liveResult.trustScore === 'number' &&
+          (liveResult.verdict === 'LEGIT' ? hasGroundedSources : true);
         record(
           'Live Google Search Grounding Execution',
-          validVerdict && hasGroundedSources,
+          pass,
           `Verdict: ${liveResult.verdict}, Trust Score: ${liveResult.trustScore}, Sources: ${liveResult.provenance.length}`
         );
       } catch (err: any) {

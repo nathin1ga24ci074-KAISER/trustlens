@@ -184,9 +184,11 @@ export const UnifiedWorkspace: React.FC = () => {
     <div className="space-y-6">
       {/* Workspace Navigation Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-2 rounded-2xl bg-slate-950/80 border border-slate-800 shadow-lg">
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 border border-slate-800/80 overflow-x-auto">
+        <div role="tablist" aria-label="Verification Mode Selection" className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 border border-slate-800/80 overflow-x-auto">
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'MULTIMODAL'}
             onClick={() => setMode('MULTIMODAL')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               mode === 'MULTIMODAL'
@@ -203,6 +205,8 @@ export const UnifiedWorkspace: React.FC = () => {
 
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'TEXT'}
             onClick={() => setMode('TEXT')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               mode === 'TEXT'
@@ -216,6 +220,8 @@ export const UnifiedWorkspace: React.FC = () => {
 
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'URL'}
             onClick={() => setMode('URL')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               mode === 'URL'
@@ -229,6 +235,8 @@ export const UnifiedWorkspace: React.FC = () => {
 
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'IMAGE'}
             onClick={() => setMode('IMAGE')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               mode === 'IMAGE'
@@ -242,6 +250,8 @@ export const UnifiedWorkspace: React.FC = () => {
 
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'VIDEO'}
             onClick={() => setMode('VIDEO')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               mode === 'VIDEO'

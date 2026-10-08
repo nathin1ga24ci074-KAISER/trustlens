@@ -58,12 +58,7 @@ export class GeminiSearchProvider implements EvidenceProvider {
         const candidate = response.candidates?.[0];
         const groundingMetadata = (candidate as any)?.groundingMetadata as GroundingMetadataInfo | undefined;
 
-        let items = this.normalizeGroundingMetadata(groundingMetadata, query, response.text());
-
-        // If live search returned 0 items (e.g. rate-limit or no chunks), attempt fallback reference search
-        if (items.length === 0) {
-          items = await this.fallbackReferenceSearch(query, claimContext);
-        }
+        const items = this.normalizeGroundingMetadata(groundingMetadata, query, response.text());
 
         results.push({
           query,
@@ -71,80 +66,20 @@ export class GeminiSearchProvider implements EvidenceProvider {
           rawMetadata: groundingMetadata || null,
         });
       } catch (err: any) {
-        console.warn(`[GeminiSearchProvider] Live search for query "${query}" encountered:`, err?.message || err);
-        // Fallback gracefully to reference search when live grounding fails or hits quota
-        const fallbackItems = await this.fallbackReferenceSearch(query, claimContext);
+        console.warn(`[GeminiSearchProvider] Live search grounding for query "${query}" encountered:`, err?.message || err);
+        // CRITICAL EVIDENCE INTEGRITY PRINCIPLE:
+        // TrustLens MUST NEVER fabricate, synthesize, or hallucinate citations or web URLs.
+        // If live search grounding fails or is rate-limited, return an empty evidence list
+        // so the uncertainty model correctly scores the claim as INCONCLUSIVE / unverified.
         results.push({
           query,
-          items: fallbackItems,
+          items: [],
           rawMetadata: null,
         });
       }
     }
 
     return results;
-  }
-
-  /**
-   * Fallback citation retriever when live Google Search Grounding is rate-limited or quota-capped
-   */
-  private async fallbackReferenceSearch(query: string, claimContext?: string): Promise<EvidenceItem[]> {
-    try {
-      // Lazy import to prevent circular issues
-      const { aiService } = await import('../../ai');
-      const prompt = `You are a factual research assistant operating in fallback mode.
-For the search query: "${query}"
-Context / claim: "${claimContext || query}"
-
-Provide 2 authoritative, real-world factual web sources that verify or address this assertion.
-Output ONLY a JSON array with this exact structure:
-[
-  {
-    "url": "https://en.wikipedia.org/wiki/...",
-    "title": "Descriptive Title",
-    "publisher": "Authoritative Publisher (e.g. NASA, Reuters, BBC, AP)",
-    "domain": "example.org",
-    "snippet": "Direct factual sentence stating the verified reality."
-  }
-]
-No extra conversational text. Return ONLY valid JSON.`;
-
-      const response = await aiService.generateText({
-        prompt,
-        temperature: 0.1,
-        maxTokens: 500,
-      });
-
-      const jsonMatch = response.text.match(/\[\s*\{[\s\S]*\}\s*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((p: any, idx: number) => {
-            const domain = p.domain || 'wikipedia.org';
-            return {
-              id: crypto.randomUUID(),
-              url: p.url || `https://${domain}`,
-              title: p.title || query,
-              publisher: p.publisher || this.extractPublisherName(domain, p.title || domain),
-              domain: domain.replace(/^www\./, ''),
-              retrievedAt: new Date().toISOString(),
-              snippet: p.snippet || query,
-              sourceType: 'GROUNDED_SEARCH',
-              relevanceScore: 0.85,
-              stance: 'UNKNOWN',
-              provenance: {
-                searchQuery: query,
-                citationIndex: idx + 1,
-                isDerivative: false,
-              },
-            };
-          });
-        }
-      }
-    } catch (e: any) {
-      console.warn('[GeminiSearchProvider] Fallback reference search encountered:', e?.message || e);
-    }
-    return [];
   }
 
   /**

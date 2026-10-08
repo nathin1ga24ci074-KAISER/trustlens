@@ -18,9 +18,18 @@ export function errorHandler(
 
   const statusCode = res.statusCode !== 200 ? res.statusCode : 500;
   
+  let safeMessage = err.message || 'An unexpected internal server error occurred';
+  if (env.isProduction) {
+    if (statusCode === 500) {
+      safeMessage = 'An unexpected internal server error occurred';
+    } else {
+      safeMessage = safeMessage.replace(/([A-Z]:\\[^\s"']+)|(\/[a-z0-9_.-]+){2,}/gi, '[path redacted]');
+    }
+  }
+
   res.status(statusCode).json({
     success: false,
-    message: err.message || 'An unexpected internal server error occurred',
+    message: safeMessage,
     ...(env.isProduction ? {} : { stack: err.stack }),
   });
 }

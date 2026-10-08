@@ -14,7 +14,17 @@ import { contradictionService } from './server/src/services/contradiction';
 import { trustScoringService } from './server/src/services/scoring';
 import { textVerificationService } from './server/src/services/text';
 import { verificationHistoryService } from './server/src/services/verification/verification-history.service';
-import { EvidenceItem } from '@trustlens/shared';
+import {
+  urlSafetyService,
+  urlFetchService,
+  urlMetadataExtractor,
+  urlContentExtractor,
+  urlScoringService,
+  urlVerificationService,
+  headlineAnalyzer,
+  selfConsistencyAnalyzer,
+} from './server/src/services/verification/url';
+import { EvidenceItem, UrlClaimVerificationResult } from '@trustlens/shared';
 
 interface TestResult {
   name: string;
@@ -501,6 +511,524 @@ async function runTests() {
     } else {
       record(
         'Live Google Search Grounding Integration Check',
+        true,
+        'Skipped live web call: GEMINI_API_KEY is not set in local environment. Deterministic offline pipeline verified.'
+      );
+    }
+
+    // -----------------------------------------------------------------
+    // 5. URL VERIFICATION SAFETY & UNIT LOGIC TESTS
+    // -----------------------------------------------------------------
+    console.log('\n--- 5. URL Verification Safety & Unit Logic Tests ---');
+
+    // 5.1 Protocol & Scheme Safety Validation
+    {
+      const ftpCheck = urlSafetyService.isSafeUrlFormat('ftp://evil.com/payload');
+      const jsCheck = urlSafetyService.isSafeUrlFormat('javascript:alert(1)');
+      const emptyCheck = urlSafetyService.isSafeUrlFormat('   ');
+      const validHttps = urlSafetyService.isSafeUrlFormat('https://example.com/article');
+      const validHttp = urlSafetyService.isSafeUrlFormat('http://reuters.com/world');
+
+      const pass =
+        !ftpCheck.valid &&
+        !jsCheck.valid &&
+        !emptyCheck.valid &&
+        validHttps.valid &&
+        validHttp.valid;
+
+      record('URL Protocol & Scheme Safety Validation', pass);
+    }
+
+    // 5.2 SSRF Protection on Blocked Targets & Private IPs
+    {
+      const targets = [
+        'http://localhost:3000',
+        'http://127.0.0.1:8080/admin',
+        'http://0.0.0.0',
+        'http://169.254.169.254/latest/meta-data',
+        'http://metadata.google.internal/computeMetadata',
+        'http://192.168.1.1/router',
+        'http://10.0.0.1/intranet',
+        'http://172.16.5.1/status',
+      ];
+
+      let allBlocked = true;
+      for (const target of targets) {
+        const check = await urlSafetyService.validateUrl(target);
+        if (check.safe) {
+          allBlocked = false;
+          break;
+        }
+      }
+
+      record('SSRF Target & Private IP Range Protection', allBlocked);
+    }
+
+    // 5.3 Metadata Extraction from HTML
+    {
+      const sampleHtml = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <title>Original HTML Title</title>
+          <meta property="og:title" content="James Webb Space Telescope Finds Water on Exoplanet" />
+          <meta property="og:description" content="Astronomers identify atmospheric water vapor in habitable zone planet." />
+          <meta property="og:site_name" content="Space Science Daily" />
+          <meta name="author" content="Dr. Sarah Connor" />
+          <meta property="article:published_time" content="2026-02-15T14:30:00Z" />
+        </head>
+        <body>
+          <h1>Headline</h1>
+        </body>
+        </html>
+      `;
+
+      const meta = urlMetadataExtractor.extractMetadata(sampleHtml, 'https://spacescience.org/articles/webb-water');
+      const pass =
+        meta.title === 'James Webb Space Telescope Finds Water on Exoplanet' &&
+        meta.publisher === 'Space Science Daily' &&
+        meta.author === 'Dr. Sarah Connor' &&
+        meta.domain === 'spacescience.org' &&
+        !!meta.publishedAt;
+
+      record(
+        'HTML Metadata Extraction (Title, OG tags, Author, Publisher)',
+        pass,
+        `Publisher: ${meta.publisher}, Title: "${meta.title.slice(0, 30)}..."`
+      );
+    }
+
+    // 5.4 Semantic Content Extraction & Boilerplate Stripping
+    {
+      const noisyHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head><title>Test Article</title></head>
+        <body>
+          <nav><a href="/">Home</a><a href="/login">Login</a></nav>
+          <header><div class="logo">Site Logo</div></header>
+          <div class="cookie-banner">Please accept cookies to continue.</div>
+          <aside class="sidebar">Related stories and ads</aside>
+          <script>console.log("analytics");</script>
+          <style>body { color: red; }</style>
+          <article>
+            <h1>Breakthrough in Quantum Computing</h1>
+            <p>Researchers have demonstrated quantum supremacy with a 1,000-qubit processor capable of solving complex problems in seconds.</p>
+            <p>The processor operates at near absolute zero and demonstrates unprecedented quantum coherence times.</p>
+            <p>Commercial applications for cryptography and material science are expected within the next decade.</p>
+          </article>
+          <footer>Copyright 2026. All rights reserved.</footer>
+        </body>
+        </html>
+      `;
+
+      const content = urlContentExtractor.extractContent(noisyHtml);
+      const pass =
+        content.paragraphs.length >= 3 &&
+        content.paragraphs.every((p) => !p.includes('analytics') && !p.includes('Site Logo') && !p.includes('cookie')) &&
+        !content.isEmpty &&
+        content.wordCount >= 30;
+
+      record(
+        'Semantic Content Extraction & Boilerplate Stripping',
+        pass,
+        `Paragraphs: ${content.paragraphs.length}, Words: ${content.wordCount}`
+      );
+    }
+
+    // 5.5 Empty Webpage Detection
+    {
+      const emptyHtml = '<html><body><div><p>Short</p></div></body></html>';
+      const content = urlContentExtractor.extractContent(emptyHtml);
+      record('Empty/Unreadable Webpage Detection', content.isEmpty === true);
+    }
+
+    // 5.6 Headline Framing & Sensationalism Analysis
+    {
+      const calmHeadline = 'Study Shows Moderate Increase in Solar Activity';
+      const body = 'A peer-reviewed study published by the Royal Astronomical Society indicates solar activity has shown a modest 3 percent increase over the baseline observation period.';
+      const analysis = await headlineAnalyzer.analyzeHeadlineFraming(calmHeadline, body);
+
+      record(
+        'Headline Framing Consistency Detection',
+        typeof analysis.detected === 'boolean' && ['NONE', 'LOW', 'MEDIUM', 'HIGH'].includes(analysis.severity),
+        `Severity: ${analysis.severity}`
+      );
+    }
+
+    // 5.7 Internal Self-Consistency Analysis
+    {
+      const paragraphs = [
+        'The spacecraft successfully entered Mars orbit on Tuesday morning after a seven-month journey.',
+        'Telemetry data confirmed all primary systems are functioning within normal operational parameters.',
+        'The science team has initiated calibration routines for the atmospheric spectrometer instrument.',
+      ];
+      const analysis = await selfConsistencyAnalyzer.analyzeSelfConsistency(paragraphs);
+
+      record(
+        'Internal Self-Consistency Narrative Analysis',
+        typeof analysis.hasInconsistency === 'boolean' && ['NONE', 'LOW', 'MEDIUM', 'HIGH'].includes(analysis.severity),
+        `HasInconsistency: ${analysis.hasInconsistency}`
+      );
+    }
+
+    // 5.8 Deterministic URL Scoring & Primary Claim Veto Rule
+    {
+      const legitClaims: UrlClaimVerificationResult[] = [
+        {
+          claimId: 'c1',
+          claim: 'Water vapor detected on exoplanet',
+          claimType: 'EMPIRICAL',
+          importance: 'PRIMARY',
+          verdict: 'LEGIT',
+          trustScore: 85,
+          confidence: 'HIGH',
+          sourceParagraph: 'Paragraph 1',
+          supportingEvidence: [],
+          contradictingEvidence: [],
+          neutralEvidence: [],
+          contradictions: { hasContradiction: false, severity: 'NONE', details: '', conflictingAspects: [] },
+          searchQueries: ['water exoplanet'],
+          provenance: [],
+        },
+        {
+          claimId: 'c2',
+          claim: 'Spectroscopy used for observation',
+          claimType: 'EMPIRICAL',
+          importance: 'SUPPORTING',
+          verdict: 'LEGIT',
+          trustScore: 80,
+          confidence: 'HIGH',
+          sourceParagraph: 'Paragraph 2',
+          supportingEvidence: [],
+          contradictingEvidence: [],
+          neutralEvidence: [],
+          contradictions: { hasContradiction: false, severity: 'NONE', details: '', conflictingAspects: [] },
+          searchQueries: ['spectroscopy observation'],
+          provenance: [],
+        },
+      ];
+
+      const legitScore = urlScoringService.evaluateUrlTrust(
+        legitClaims,
+        { detected: false, severity: 'NONE', explanation: 'Accurate' },
+        { hasInconsistency: false, severity: 'NONE', details: 'Consistent' },
+        false
+      );
+
+      const contradictedClaims: UrlClaimVerificationResult[] = [
+        {
+          claimId: 'c1',
+          claim: 'Secret moon base discovered',
+          claimType: 'EMPIRICAL',
+          importance: 'PRIMARY',
+          verdict: 'FAKE',
+          trustScore: 10,
+          confidence: 'HIGH',
+          sourceParagraph: 'Paragraph 1',
+          supportingEvidence: [],
+          contradictingEvidence: [],
+          neutralEvidence: [],
+          contradictions: { hasContradiction: true, severity: 'SEVERE', details: 'Debunked', conflictingAspects: [] },
+          searchQueries: ['secret moon base'],
+          provenance: [],
+        },
+        {
+          claimId: 'c2',
+          claim: 'Moon orbits the Earth',
+          claimType: 'EMPIRICAL',
+          importance: 'SUPPORTING',
+          verdict: 'LEGIT',
+          trustScore: 90,
+          confidence: 'HIGH',
+          sourceParagraph: 'Paragraph 2',
+          supportingEvidence: [],
+          contradictingEvidence: [],
+          neutralEvidence: [],
+          contradictions: { hasContradiction: false, severity: 'NONE', details: '', conflictingAspects: [] },
+          searchQueries: ['moon orbits earth'],
+          provenance: [],
+        },
+      ];
+
+      const contradictedScore = urlScoringService.evaluateUrlTrust(
+        contradictedClaims,
+        { detected: false, severity: 'NONE', explanation: 'Sensational' },
+        { hasInconsistency: false, severity: 'NONE', details: 'Consistent' },
+        false
+      );
+
+      const vetoWorks = contradictedScore.overallVerdict !== 'LEGIT';
+      const legitWorks = legitScore.overallVerdict === 'LEGIT' && legitScore.trustScore >= 65;
+
+      record(
+        'Deterministic URL Scoring & Primary Claim Veto Rule',
+        vetoWorks && legitWorks,
+        `Legit Score: ${legitScore.trustScore} (${legitScore.overallVerdict}), Contradicted Primary: ${contradictedScore.overallVerdict}`
+      );
+    }
+
+    // 5.9 Circular Evidence Exclusion Logic
+    {
+      const sameDomainEvidence: EvidenceItem = {
+        id: 'e1',
+        url: 'https://nytimes.com/2026/01/01/science/space.html',
+        title: 'Self confirmation',
+        publisher: 'The New York Times',
+        domain: 'nytimes.com',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Self quoting article',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'SUPPORTS',
+      };
+      const independentEvidence: EvidenceItem = {
+        id: 'e2',
+        url: 'https://nature.com/articles/s41586-026-0001',
+        title: 'Peer confirmation',
+        publisher: 'Nature',
+        domain: 'nature.com',
+        retrievedAt: new Date().toISOString(),
+        snippet: 'Independent study confirms findings',
+        sourceType: 'GROUNDED_SEARCH',
+        stance: 'SUPPORTS',
+      };
+
+      const isSame = (urlVerificationService as any).isSameSource(
+        sameDomainEvidence,
+        'https://www.nytimes.com/article',
+        'https://www.nytimes.com/article',
+        'nytimes.com'
+      );
+      const isDiff = (urlVerificationService as any).isSameSource(
+        independentEvidence,
+        'https://www.nytimes.com/article',
+        'https://www.nytimes.com/article',
+        'nytimes.com'
+      );
+
+      record(
+        'Circular Evidence Exclusion (Verified Domain Excluded from External Evidence)',
+        isSame === true && isDiff === false,
+        `Self-Domain Blocked: ${isSame}, Independent Allowed: ${!isDiff}`
+      );
+    }
+
+    // -----------------------------------------------------------------
+    // 6. URL HTTP API & AUTHORIZATION TESTS
+    // -----------------------------------------------------------------
+    console.log('\n--- 6. URL HTTP API & Authorization Tests ---');
+    let createdUrlVerificationId = '';
+
+    // 6.1 Unauthorized Request Rejection on POST /api/verify/url
+    {
+      const res = await fetch(`${BASE}/verify/url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://example.com' }),
+      });
+      record('Unauthorized Verification Rejection (POST /api/verify/url)', res.status === 401);
+    }
+
+    // 6.2 SSRF Target Blocked at API Boundary
+    {
+      const resLocal = await fetch(`${BASE}/verify/url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user1Token}`,
+        },
+        body: JSON.stringify({ url: 'http://127.0.0.1:5099/admin' }),
+      });
+      const bodyLocal = await resLocal.json();
+
+      const resMeta = await fetch(`${BASE}/verify/url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user1Token}`,
+        },
+        body: JSON.stringify({ url: 'http://169.254.169.254/latest/meta-data' }),
+      });
+
+      record(
+        'SSRF Attack Blocked at API Boundary (403 Forbidden)',
+        resLocal.status === 403 && resMeta.status === 403 && bodyLocal.errorCode === 'URL_BLOCKED',
+        `Localhost status: ${resLocal.status}, Metadata status: ${resMeta.status}`
+      );
+    }
+
+    // 6.3 Input Validation Rejection on Invalid Protocol or Empty URL
+    {
+      const resProtocol = await fetch(`${BASE}/verify/url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user1Token}`,
+        },
+        body: JSON.stringify({ url: 'ftp://ftp.example.com/file' }),
+      });
+
+      const resEmpty = await fetch(`${BASE}/verify/url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user1Token}`,
+        },
+        body: JSON.stringify({ url: '   ' }),
+      });
+
+      record(
+        'URL Format & Protocol Input Validation (400 Bad Request)',
+        resProtocol.status === 400 && resEmpty.status === 400
+      );
+    }
+
+    // 6.4 Full Multi-Stage URL Verification Pipeline Execution (POST /api/verify/url)
+    {
+      const originalFetch = urlFetchService.fetchWebpage.bind(urlFetchService);
+      const mockHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Clean Fusion Energy Breakthrough Confirmed by Scientists</title>
+          <meta property="og:site_name" content="Clean Energy Science" />
+          <meta name="author" content="Dr. Alan Grant" />
+        </head>
+        <body>
+          <article>
+            <h1>Clean Fusion Energy Breakthrough Confirmed by Scientists</h1>
+            <p>Researchers at the National Ignition Facility achieved net energy gain in a controlled nuclear fusion experiment.</p>
+            <p>The experimental reactor yielded 3.15 megajoules of energy from an input of 2.05 megajoules of laser energy.</p>
+            <p>This achievement represents a milestone in the global quest for clean sustainable fusion power.</p>
+          </article>
+        </body>
+        </html>
+      `;
+
+      urlFetchService.fetchWebpage = async (targetUrl: string) => {
+        return {
+          html: mockHtml,
+          finalUrl: targetUrl,
+          statusCode: 200,
+          contentType: 'text/html; charset=utf-8',
+          contentLength: mockHtml.length,
+          redirectCount: 0,
+        };
+      };
+
+      try {
+        const res = await fetch(`${BASE}/verify/url`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${user1Token}`,
+          },
+          body: JSON.stringify({ url: 'https://example.com/clean-energy-fusion' }),
+        });
+        const body = await res.json();
+        createdUrlVerificationId = body.data?.verificationId;
+
+        const hasValidStructure =
+          res.status === 200 &&
+          body.success === true &&
+          !!createdUrlVerificationId &&
+          ['LEGIT', 'INCONCLUSIVE', 'FAKE'].includes(body.data?.overallVerdict) &&
+          typeof body.data?.trustScore === 'number' &&
+          Array.isArray(body.data?.claims) &&
+          body.data?.claims.length > 0 &&
+          !!body.data?.headlineAnalysis &&
+          !!body.data?.selfConsistencyAnalysis;
+
+        record(
+          'Full Multi-Stage URL Verification Pipeline (POST /api/verify/url)',
+          hasValidStructure,
+          `Verdict: ${body.data?.overallVerdict}, TrustScore: ${body.data?.trustScore}, Claims: ${body.data?.claims?.length}, ID: ${createdUrlVerificationId}`
+        );
+      } finally {
+        urlFetchService.fetchWebpage = originalFetch;
+      }
+    }
+
+    // 6.5 Strict User Ownership & Isolation for URL Verifications
+    {
+      const resUser1 = await fetch(`${BASE}/verify/history`, {
+        headers: { Authorization: `Bearer ${user1Token}` },
+      });
+      const bodyUser1 = await resUser1.json();
+      const user1HasUrlRecord =
+        Array.isArray(bodyUser1.data) &&
+        bodyUser1.data.some((r: any) => r.type === 'URL' && r.id === createdUrlVerificationId);
+
+      const resUser2 = await fetch(`${BASE}/verify/history`, {
+        headers: { Authorization: `Bearer ${user2Token}` },
+      });
+      const bodyUser2 = await resUser2.json();
+      const user2Empty = Array.isArray(bodyUser2.data) && bodyUser2.data.length === 0;
+
+      record(
+        'Strict User Ownership & Isolation for URL Verifications',
+        resUser1.status === 200 && user1HasUrlRecord && resUser2.status === 200 && user2Empty,
+        `User 1 has URL record: ${user1HasUrlRecord}, User 2 total: ${bodyUser2.data?.length}`
+      );
+    }
+
+    // 6.6 Cross-User URL Verification Access Guard (404 Not Found)
+    {
+      const res = await fetch(`${BASE}/verify/${createdUrlVerificationId}`, {
+        headers: { Authorization: `Bearer ${user2Token}` },
+      });
+      record(
+        'Cross-User URL Verification Access Guard (404 Not Found)',
+        res.status === 404,
+        `Status: ${res.status}`
+      );
+    }
+
+    // 6.7 Authorized Owner Retrieval of Complete URL Verification Record
+    {
+      const res = await fetch(`${BASE}/verify/${createdUrlVerificationId}`, {
+        headers: { Authorization: `Bearer ${user1Token}` },
+      });
+      const body = await res.json();
+      const pass =
+        res.status === 200 &&
+        body.data?.verificationId === createdUrlVerificationId &&
+        body.data?.inputUrl === 'https://example.com/clean-energy-fusion' &&
+        Array.isArray(body.data?.claims);
+
+      record(
+        'Authorized Owner Retrieval of Complete URL Verification Record',
+        pass,
+        `Verified URL: ${body.data?.inputUrl}, Claims: ${body.data?.claims?.length}`
+      );
+    }
+
+    // -----------------------------------------------------------------
+    // 7. REAL WEB URL VERIFICATION INTEGRATION CHECK
+    // -----------------------------------------------------------------
+    console.log('\n--- 7. Real Web URL Verification Integration Check ---');
+    if (hasLiveGemini) {
+      console.log('Real GEMINI_API_KEY detected. Executing live URL verification on public site...');
+      try {
+        const liveUrlResult = await urlVerificationService.verifyUrl(
+          'https://example.com',
+          user1Id
+        );
+        const pass =
+          ['LEGIT', 'INCONCLUSIVE', 'FAKE'].includes(liveUrlResult.overallVerdict) &&
+          typeof liveUrlResult.trustScore === 'number' &&
+          liveUrlResult.page.title.length > 0;
+        record(
+          'Live Web Evidence URL Verification Integration Check',
+          pass,
+          `Verdict: ${liveUrlResult.overallVerdict}, Trust Score: ${liveUrlResult.trustScore}, Claims: ${liveUrlResult.claims.length}`
+        );
+      } catch (err: any) {
+        record('Live Web Evidence URL Verification Integration Check', false, `Error: ${err.message}`);
+      }
+    } else {
+      record(
+        'Live Web Evidence URL Verification Integration Check',
         true,
         'Skipped live web call: GEMINI_API_KEY is not set in local environment. Deterministic offline pipeline verified.'
       );

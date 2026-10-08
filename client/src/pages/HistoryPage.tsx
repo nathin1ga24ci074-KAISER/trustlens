@@ -12,10 +12,11 @@ import {
   Loader2,
   X,
   FileText,
+  Globe,
   ShieldCheck,
   AlertTriangle,
 } from 'lucide-react';
-import { VerificationHistoryItem, TextVerificationResult } from '@trustlens/shared';
+import { VerificationHistoryItem, TextVerificationResult, UrlVerificationResult } from '@trustlens/shared';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
@@ -25,7 +26,8 @@ export const HistoryPage: React.FC = () => {
   const [historyItems, setHistoryItems] = useState<VerificationHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedVerification, setSelectedVerification] = useState<TextVerificationResult | null>(null);
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'TEXT' | 'URL'>('ALL');
+  const [selectedVerification, setSelectedVerification] = useState<TextVerificationResult | UrlVerificationResult | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export const HistoryPage: React.FC = () => {
 
   const handleOpenDetail = async (item: VerificationHistoryItem) => {
     if (item.metadata && (item.metadata as any).verdict) {
-      setSelectedVerification(item.metadata as unknown as TextVerificationResult);
+      setSelectedVerification(item.metadata as unknown as TextVerificationResult | UrlVerificationResult);
       return;
     }
 
@@ -66,8 +68,10 @@ export const HistoryPage: React.FC = () => {
   };
 
   const filteredItems = historyItems.filter((item) => {
+    const matchesType = typeFilter === 'ALL' || item.type === typeFilter;
     const text = (item.extractedClaim || item.originalInput || '').toLowerCase();
-    return text.includes(searchQuery.toLowerCase());
+    const matchesSearch = text.includes(searchQuery.toLowerCase());
+    return matchesType && matchesSearch;
   });
 
   const getVerdictBadge = (verdict?: string | null) => {
@@ -115,9 +119,37 @@ export const HistoryPage: React.FC = () => {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search claims, entities, or keywords in your history..."
+            placeholder="Search claims, URLs, entities, or keywords in your history..."
             className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
           />
+        </div>
+
+        {/* Type Filter Buttons */}
+        <div className="flex items-center p-1 rounded-lg bg-slate-900 border border-slate-800">
+          <button
+            onClick={() => setTypeFilter('ALL')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              typeFilter === 'ALL' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setTypeFilter('TEXT')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              typeFilter === 'TEXT' ? 'bg-slate-800 text-sky-400' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Text Claims
+          </button>
+          <button
+            onClick={() => setTypeFilter('URL')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              typeFilter === 'URL' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Webpage URLs
+          </button>
         </div>
       </div>
 
@@ -197,87 +229,138 @@ export const HistoryPage: React.FC = () => {
       )}
 
       {/* Verification Detail Modal */}
-      {selectedVerification && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-6 shadow-2xl">
-            <div className="flex items-start justify-between pb-4 border-b border-slate-800">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  {getVerdictBadge(selectedVerification.verdict)}
-                  <Badge variant="neutral">{selectedVerification.confidence} CONFIDENCE</Badge>
+      {selectedVerification && (() => {
+        const isUrl = 'inputUrl' in selectedVerification;
+        const urlRes = isUrl ? (selectedVerification as UrlVerificationResult) : null;
+        const textRes = !isUrl ? (selectedVerification as TextVerificationResult) : null;
+        const verdict = urlRes ? urlRes.overallVerdict : textRes!.verdict;
+        const heading = urlRes ? urlRes.page.title : textRes!.claim;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-6 shadow-2xl">
+              <div className="flex items-start justify-between pb-4 border-b border-slate-800">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    {getVerdictBadge(verdict)}
+                    <Badge variant="neutral">{selectedVerification.confidence} CONFIDENCE</Badge>
+                    <Badge variant={isUrl ? 'brand' : 'neutral'}>{isUrl ? 'URL WEB PAGE' : 'TEXT CLAIM'}</Badge>
+                  </div>
+                  <h3 className="text-lg font-bold text-white leading-snug">
+                    "{heading}"
+                  </h3>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    Verified: {new Date(selectedVerification.createdAt).toLocaleString()}
+                    {urlRes && ` • ${urlRes.page.domain}`}
+                  </span>
                 </div>
-                <h3 className="text-lg font-bold text-white">
-                  "{selectedVerification.claim}"
-                </h3>
-                <span className="text-[11px] text-slate-500 font-mono">
-                  Verified: {new Date(selectedVerification.createdAt).toLocaleString()}
-                </span>
+                <button
+                  onClick={() => setSelectedVerification(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button
-                onClick={() => setSelectedVerification(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            {/* Score & Summary */}
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="block text-[10px] uppercase font-mono text-slate-400">Calibrated Trust Score</span>
-                <span className="text-2xl font-black text-white">{selectedVerification.trustScore} / 100</span>
-              </div>
-              <p className="text-xs text-slate-300 max-w-md leading-relaxed">
-                {selectedVerification.summary}
-              </p>
-            </div>
-
-            {/* Detailed Reasoning */}
-            {selectedVerification.reasoning && (
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Factual Rationale
-                </span>
-                <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/70 p-3.5 rounded-lg border border-slate-800 whitespace-pre-wrap">
-                  {selectedVerification.reasoning}
+              {/* Score & Summary */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                <div>
+                  <span className="block text-[10px] uppercase font-mono text-slate-400">Calibrated Trust Score</span>
+                  <span className="text-2xl font-black text-white">{selectedVerification.trustScore} / 100</span>
+                </div>
+                <p className="text-xs text-slate-300 max-w-md leading-relaxed">
+                  {selectedVerification.summary}
                 </p>
               </div>
-            )}
 
-            {/* Citations Preview */}
-            <div className="space-y-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Independent Citations ({selectedVerification.supportingEvidence.length + selectedVerification.contradictingEvidence.length})
-              </span>
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {[...selectedVerification.supportingEvidence, ...selectedVerification.contradictingEvidence].map((e) => (
-                  <div
-                    key={e.id}
-                    className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between text-xs"
-                  >
-                    <a
-                      href={e.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sky-400 hover:underline flex items-center gap-1.5 truncate max-w-[400px]"
-                    >
-                      {e.title}
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
-                    <span className="text-[11px] font-mono text-slate-500">{e.domain}</span>
+              {/* URL Specific Sections */}
+              {urlRes && (
+                <div className="space-y-4">
+                  {/* Headline Analysis */}
+                  {urlRes.headlineAnalysis && (
+                    <div className="p-3.5 rounded-lg bg-slate-950/60 border border-slate-800 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-300">Headline Framing:</span>
+                        <span className="text-xs font-bold text-slate-400">Severity: {urlRes.headlineAnalysis.severity}</span>
+                      </div>
+                      <p className="text-xs text-slate-400">{urlRes.headlineAnalysis.explanation}</p>
+                    </div>
+                  )}
+
+                  {/* Claims List */}
+                  <div className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
+                      Claims Verified ({urlRes.claims.length})
+                    </span>
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {urlRes.claims.map((c, idx) => (
+                        <div key={idx} className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-200">"{c.claim}"</span>
+                            {getVerdictBadge(c.verdict)}
+                          </div>
+                          <div className="text-[11px] text-slate-400 flex items-center gap-3">
+                            <span>Importance: <strong>{c.importance}</strong></span>
+                            <span>Score: <strong>{c.trustScore}</strong></span>
+                            <span>Citations: {c.supportingEvidence.length + c.contradictingEvidence.length}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* Text Specific Rationale & Citations */}
+              {textRes && (
+                <>
+                  {textRes.reasoning && (
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Factual Rationale
+                      </span>
+                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/70 p-3.5 rounded-lg border border-slate-800 whitespace-pre-wrap">
+                        {textRes.reasoning}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Independent Citations ({textRes.supportingEvidence.length + textRes.contradictingEvidence.length})
+                    </span>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {[...textRes.supportingEvidence, ...textRes.contradictingEvidence].map((e) => (
+                        <div
+                          key={e.id}
+                          className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between text-xs"
+                        >
+                          <a
+                            href={e.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sky-400 hover:underline flex items-center gap-1.5 truncate max-w-[400px]"
+                          >
+                            {e.title}
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                          <span className="text-[11px] font-mono text-slate-500">{e.domain}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="pt-3 border-t border-slate-800 text-right">
+                <Button variant="secondary" size="sm" onClick={() => setSelectedVerification(null)}>
+                  Close Record
+                </Button>
               </div>
             </div>
-
-            <div className="pt-3 border-t border-slate-800 text-right">
-              <Button variant="secondary" size="sm" onClick={() => setSelectedVerification(null)}>
-                Close Record
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

@@ -18,11 +18,13 @@ import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { TextVerifier } from '../components/verification/TextVerifier';
+import { UrlVerifier } from '../components/verification/UrlVerifier';
 import { AIDiagnosticsCard } from '../components/ai/AIDiagnosticsCard';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [activeTab, setActiveTab] = useState<'TEXT' | 'URL'>('TEXT');
 
   return (
     <div className="flex-1 py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full space-y-8">
@@ -33,7 +35,7 @@ export const DashboardPage: React.FC = () => {
             <h1 className="text-2xl font-bold tracking-tight text-white">
               Verification Workspace
             </h1>
-            <Badge variant="brand">Text Verification Active</Badge>
+            <Badge variant="brand">Text & URL Engines Active</Badge>
           </div>
           <p className="text-xs text-slate-400">
             Authenticated session for <span className="text-slate-200 font-medium">{user?.email}</span>
@@ -43,7 +45,7 @@ export const DashboardPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowDiagnostics(!showDiagnostics)}
-            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5 transition-colors"
+            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <Terminal className="w-3.5 h-3.5 text-sky-400" />
             Developer Diagnostics
@@ -82,19 +84,45 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* PRIMARY WORKSPACE: Evidence-Backed Text Verification */}
-      <section>
-        <TextVerifier />
+      {/* Mode Navigation Tabs */}
+      <div className="flex items-center p-1.5 rounded-xl bg-slate-900 border border-slate-800 max-w-md">
+        <button
+          onClick={() => setActiveTab('TEXT')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+            activeTab === 'TEXT'
+              ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          Text Claim Verification
+        </button>
+        <button
+          onClick={() => setActiveTab('URL')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+            activeTab === 'URL'
+              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          URL Webpage Verification
+        </button>
+      </div>
+
+      {/* PRIMARY WORKSPACE */}
+      <section className="transition-all duration-300">
+        {activeTab === 'TEXT' ? <TextVerifier /> : <UrlVerifier />}
       </section>
 
       {/* Upcoming Verification Modalities Architecture */}
       <div className="pt-6 border-t border-slate-900">
         <div className="mb-4">
           <h2 className="text-sm font-semibold text-white">
-            Upcoming Verification Modalities
+            Verification Engine Status
           </h2>
           <p className="text-xs text-slate-400">
-            Modular engine architecture prepared for multimodal reasoning expansion
+            Multi-modal misinformation architecture status
           </p>
         </div>
 
@@ -103,22 +131,22 @@ export const DashboardPage: React.FC = () => {
             <div className="w-9 h-9 rounded-lg bg-sky-950 border border-sky-800 flex items-center justify-center text-sky-400 mb-3">
               <FileText className="w-5 h-5 text-sky-400" />
             </div>
-            <h3 className="text-sm font-semibold text-white mb-1">Text Statements</h3>
+            <h3 className="text-sm font-semibold text-white mb-1">Text Claims</h3>
             <p className="text-xs text-slate-300 leading-relaxed mb-3">
               Live Google Search grounding, independent citations, and contradiction analysis.
             </p>
-            <Badge variant="success" size="sm">Active (Phase 1.5)</Badge>
+            <Badge variant="success" size="sm">Active (Stage 3)</Badge>
           </Card>
 
-          <Card className="border-dashed border-slate-800 bg-slate-950/40">
-            <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mb-3">
-              <Globe className="w-5 h-5 text-emerald-400" />
+          <Card className="border-cyan-900/60 bg-cyan-950/20">
+            <div className="w-9 h-9 rounded-lg bg-cyan-950 border border-cyan-800 flex items-center justify-center text-cyan-400 mb-3">
+              <Globe className="w-5 h-5 text-cyan-400" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-200 mb-1">URL & Web Article</h3>
-            <p className="text-xs text-slate-400 leading-relaxed mb-3">
-              Canonical article text parsing, publisher trust scores, and domain lineage.
+            <h3 className="text-sm font-semibold text-white mb-1">URL & Web Article</h3>
+            <p className="text-xs text-slate-300 leading-relaxed mb-3">
+              Safe fetch, SSRF protection, multi-claim verification, and headline analysis.
             </p>
-            <Badge variant="neutral" size="sm">Stage 3 Pipeline</Badge>
+            <Badge variant="success" size="sm">Active (Stage 4)</Badge>
           </Card>
 
           <Card className="border-dashed border-slate-800 bg-slate-950/40">
@@ -129,7 +157,7 @@ export const DashboardPage: React.FC = () => {
             <p className="text-xs text-slate-400 leading-relaxed mb-3">
               Reverse search, perceptual matching, clone detection, and EXIF forensics.
             </p>
-            <Badge variant="neutral" size="sm">Stage 3 Pipeline</Badge>
+            <Badge variant="neutral" size="sm">Stage 5 Pipeline</Badge>
           </Card>
 
           <Card className="border-dashed border-slate-800 bg-slate-950/40">
@@ -140,7 +168,7 @@ export const DashboardPage: React.FC = () => {
             <p className="text-xs text-slate-400 leading-relaxed mb-3">
               Temporal keyframe extraction, audio transcription, and synthetic artifact analysis.
             </p>
-            <Badge variant="neutral" size="sm">Stage 3 Pipeline</Badge>
+            <Badge variant="neutral" size="sm">Stage 6 Pipeline</Badge>
           </Card>
         </div>
       </div>

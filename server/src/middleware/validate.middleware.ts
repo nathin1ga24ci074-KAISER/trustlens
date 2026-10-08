@@ -50,6 +50,17 @@ export const verifyTextSchema = z.object({
     .max(5000, 'Claim statement cannot exceed 5,000 characters'),
 });
 
+export const verifyUrlSchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .min(1, 'URL is required')
+    .max(2048, 'URL cannot exceed 2,048 characters')
+    .refine((val) => val.startsWith('http://') || val.startsWith('https://'), {
+      message: 'URL must begin with http:// or https://',
+    }),
+});
+
 export function validateBody(schema: z.ZodSchema) {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {

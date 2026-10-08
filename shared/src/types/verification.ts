@@ -13,7 +13,24 @@ export type VerificationVerdict =
 
 export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
-export type ClaimType = 'FACTUAL' | 'OPINION' | 'PREDICTION' | 'NON_VERIFIABLE';
+export type ClaimType =
+  | 'FACTUAL'
+  | 'STATISTICAL'
+  | 'HISTORICAL'
+  | 'SCIENTIFIC'
+  | 'POLITICAL'
+  | 'ECONOMIC'
+  | 'MEDICAL'
+  | 'EVENT'
+  | 'QUOTE'
+  | 'GEOGRAPHICAL'
+  | 'PRODUCT'
+  | 'GENERAL_FACT'
+  | 'OPINION'
+  | 'PREDICTION'
+  | 'NON_VERIFIABLE';
+
+export type ClaimImportance = 'PRIMARY' | 'SUPPORTING' | 'MINOR';
 
 export type EvidenceStance = 'SUPPORTS' | 'CONTRADICTS' | 'NEUTRAL' | 'UNKNOWN';
 
@@ -106,6 +123,94 @@ export interface VerifyTextInput {
 export interface VerifyTextResponse {
   success: boolean;
   data: TextVerificationResult;
+}
+
+// -------------------------------------------------------------
+// STAGE 4 URL VERIFICATION TYPES
+// -------------------------------------------------------------
+
+export interface PageMetadata {
+  title: string;
+  description: string;
+  publisher: string;
+  domain: string;
+  author: string | null;
+  publishedAt: string | null;
+  modifiedAt: string | null;
+  retrievedAt: string;
+  language?: string | null;
+}
+
+export interface UrlExtractedClaim {
+  id: string;
+  claim: string;
+  claimType: ClaimType;
+  importance: ClaimImportance;
+  entities: string[];
+  timeContext?: string | null;
+  locationContext?: string | null;
+  sourceParagraph?: string | null;
+  verificationNeeded: boolean;
+}
+
+export interface UrlClaimVerificationResult {
+  claimId: string;
+  claim: string;
+  claimType: ClaimType;
+  importance: ClaimImportance;
+  verdict: PrimaryVerdict;
+  trustScore: number;
+  confidence: ConfidenceLevel;
+  sourceParagraph?: string | null;
+  supportingEvidence: EvidenceItem[];
+  contradictingEvidence: EvidenceItem[];
+  neutralEvidence: EvidenceItem[];
+  contradictions: ContradictionAnalysisResult;
+  searchQueries: string[];
+  provenance: Array<{
+    source: string;
+    domain: string;
+    relationship?: string;
+  }>;
+}
+
+export interface HeadlineAnalysisResult {
+  detected: boolean;
+  severity: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  explanation: string;
+}
+
+export interface SelfConsistencyAnalysisResult {
+  hasInconsistency: boolean;
+  severity: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  details: string;
+}
+
+export interface UrlVerificationResult {
+  verificationId: string;
+  inputUrl: string;
+  finalUrl: string;
+  canonicalUrl?: string | null;
+  page: PageMetadata;
+  overallVerdict: PrimaryVerdict;
+  trustScore: number;             // 0 - 100
+  confidence: ConfidenceLevel;
+  summary: string;
+  reasoning: string;
+  claims: UrlClaimVerificationResult[];
+  headlineAnalysis: HeadlineAnalysisResult;
+  selfConsistencyAnalysis: SelfConsistencyAnalysisResult;
+  limitations: string[];
+  createdAt: string;
+}
+
+export interface VerifyUrlInput {
+  url: string;
+}
+
+export interface VerifyUrlResponse {
+  success: boolean;
+  data: UrlVerificationResult;
 }
 
 export interface VerificationHistoryItem {

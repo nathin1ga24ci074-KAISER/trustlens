@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { textVerificationService } from '../services/text/text-verification.service';
+import { urlVerificationService, UrlFetchError } from '../services/verification/url';
 import { verificationHistoryService } from '../services/verification/verification-history.service';
 
 export class VerificationController {
@@ -23,6 +24,46 @@ export class VerificationController {
         data: result,
       });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/verify/url
+   * Executes the full multi-stage evidence-backed URL verification pipeline
+   */
+  async verifyUrl(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Authentication required' });
+        return;
+      }
+
+      const { url } = req.body;
+      const result = await urlVerificationService.verifyUrl(url, req.user.id);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      if (error instanceof UrlFetchError) {
+        const statusCode =
+          error.code === 'URL_INVALID' || error.code === 'URL_UNSUPPORTED_PROTOCOL'
+            ? 400
+            : error.code === 'URL_BLOCKED' || error.code === 'URL_REDIRECT_BLOCKED'
+            ? 403
+            : error.code === 'URL_TIMEOUT'
+            ? 504
+            : 422;
+
+        res.status(statusCode).json({
+          success: false,
+          errorCode: error.code,
+          message: error.message,
+        });
+        return;
+      }
       next(error);
     }
   }

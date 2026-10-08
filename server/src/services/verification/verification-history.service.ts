@@ -1,4 +1,4 @@
-import { TextVerificationResult, VerificationHistoryItem } from '@trustlens/shared';
+import { TextVerificationResult, UrlVerificationResult, VerificationHistoryItem } from '@trustlens/shared';
 import { prisma, isDbConnected } from '../../config/db';
 import crypto from 'crypto';
 
@@ -23,11 +23,25 @@ const memoryVerifications = new Map<string, StoredVerificationRecord>();
 
 class VerificationHistoryService {
   /**
-   * Save a completed verification to the database associated with the user
+   * Save a completed verification (TEXT or URL) to the database associated with the user
    */
-  async saveVerification(userId: string, result: TextVerificationResult): Promise<string> {
+  async saveVerification(
+    userId: string,
+    result: TextVerificationResult | UrlVerificationResult,
+    type: 'TEXT' | 'URL' = 'TEXT'
+  ): Promise<string> {
+    const isUrl = type === 'URL' || 'inputUrl' in result;
     const confidenceToScore = result.confidence === 'HIGH' ? 0.9 : result.confidence === 'MEDIUM' ? 0.6 : 0.3;
-    const uncertaintyScore = Math.max(0, Math.min(1, (result.scoreBreakdown.uncertaintyPenalty || 0) / 100));
+    const originalInput = isUrl ? (result as UrlVerificationResult).inputUrl : (result as TextVerificationResult).input;
+    const extractedClaim = isUrl
+      ? (result as UrlVerificationResult).page.title
+      : (result as TextVerificationResult).claim;
+    const verdict = isUrl
+      ? (result as UrlVerificationResult).overallVerdict
+      : (result as TextVerificationResult).verdict;
+    const uncertaintyScore = isUrl
+      ? 0.2
+      : Math.max(0, Math.min(1, ((result as TextVerificationResult).scoreBreakdown?.uncertaintyPenalty || 0) / 100));
 
     if (isDbConnected()) {
       try {
@@ -35,10 +49,10 @@ class VerificationHistoryService {
           data: {
             id: result.verificationId,
             userId,
-            type: 'TEXT',
-            originalInput: result.input,
-            extractedClaim: result.claim,
-            verdict: result.verdict as any,
+            type: isUrl ? 'URL' : 'TEXT',
+            originalInput,
+            extractedClaim,
+            verdict: verdict as any,
             trustScore: result.trustScore,
             uncertaintyScore,
             confidenceScore: confidenceToScore,
@@ -55,10 +69,10 @@ class VerificationHistoryService {
     const record: StoredVerificationRecord = {
       id: result.verificationId,
       userId,
-      type: 'TEXT',
-      originalInput: result.input,
-      extractedClaim: result.claim,
-      verdict: result.verdict,
+      type: isUrl ? 'URL' : 'TEXT',
+      originalInput,
+      extractedClaim,
+      verdict,
       trustScore: result.trustScore,
       uncertaintyScore,
       confidenceScore: confidenceToScore,
@@ -74,7 +88,7 @@ class VerificationHistoryService {
   /**
    * Retrieve a specific verification ensuring strict user authorization
    */
-  async getVerificationById(id: string, userId: string): Promise<TextVerificationResult | null> {
+  async getVerificationById(id: string, userId: string): Promise<TextVerificationResult | UrlVerificationResult | null> {
     if (isDbConnected()) {
       try {
         const record = await prisma.verificationHistory.findUnique({
@@ -87,7 +101,7 @@ class VerificationHistoryService {
         }
 
         if (record.metadata && typeof record.metadata === 'object') {
-          return record.metadata as unknown as TextVerificationResult;
+          return record.metadata as unknown as TextVerificationResult | UrlVerificationResult;
         }
 
         return this.mapRecordToResult(record);
@@ -101,7 +115,7 @@ class VerificationHistoryService {
       return null;
     }
 
-    return (mem.metadata as TextVerificationResult) || this.mapRecordToResult(mem);
+    return (mem.metadata as TextVerificationResult | UrlVerificationResult) || this.mapRecordToResult(mem);
   }
 
   /**

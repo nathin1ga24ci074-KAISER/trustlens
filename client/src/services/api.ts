@@ -1,4 +1,12 @@
-import { RegisterInput, LoginInput, AuthResponse, User, TextVerificationResult, VerificationHistoryItem } from '@trustlens/shared';
+import {
+  RegisterInput,
+  LoginInput,
+  AuthResponse,
+  User,
+  TextVerificationResult,
+  UrlVerificationResult,
+  VerificationHistoryItem,
+} from '@trustlens/shared';
 
 const API_BASE = '/api';
 
@@ -44,6 +52,7 @@ class ApiService {
       const message = data.message || `Request failed with status ${response.status}`;
       const error: any = new Error(message);
       error.status = response.status;
+      error.errorCode = data.errorCode;
       error.errors = data.errors;
       throw error;
     }
@@ -129,7 +138,16 @@ class ApiService {
     });
   }
 
-  async getVerification(id: string): Promise<{ success: boolean; data: TextVerificationResult }> {
+  async verifyUrl(url: string): Promise<{ success: boolean; data: UrlVerificationResult }> {
+    return this.request('/verify/url', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+  }
+
+  async getVerification(
+    id: string
+  ): Promise<{ success: boolean; data: TextVerificationResult | UrlVerificationResult }> {
     return this.request(`/verify/${id}`, {
       method: 'GET',
     });

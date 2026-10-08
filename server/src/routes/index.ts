@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import authRoutes from './auth.routes';
+import aiRoutes from './ai.routes';
 
 const router = Router();
 
@@ -15,5 +16,8 @@ router.get('/health', (_req: Request, res: Response) => {
 
 // Authentication routes
 router.use('/auth', authRoutes);
+
+// AI Provider Foundation routes (diagnostic & execution)
+router.use('/ai', aiRoutes);
 
 export default router;

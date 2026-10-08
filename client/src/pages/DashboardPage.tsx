@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
+import { AIDiagnosticsCard } from '../components/ai/AIDiagnosticsCard';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
@@ -108,6 +109,11 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
         </Card>
+      </div>
+
+      {/* AI Provider Foundation Diagnostics Panel */}
+      <div className="mb-8">
+        <AIDiagnosticsCard />
       </div>
 
       {/* Planned Verification Modalities Architecture */}

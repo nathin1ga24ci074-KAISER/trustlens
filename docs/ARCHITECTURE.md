@@ -59,3 +59,48 @@ All communication between frontend and backend uses JSON-encoded payloads over H
 1. **Authentication Token**: Returned on successful login/registration via an HTTP-only cookie (`token`) and Bearer header.
 2. **Error Responses**: Uniform JSON structure `{ success: false, message: string, errors?: [] }`.
 3. **Data Responses**: Standardized JSON structure `{ success: true, ...data }`.
+
+---
+
+## 4. AI Provider Abstraction & Reasoning Philosophy
+
+### The "AI is Not the Truth Source" Rule
+In TrustLens, Large Language Models (LLMs) are **never treated as ground-truth authorities**. Rather, they function strictly as semantic parsing and reasoning engines that evaluate empirical evidence retrieved independently from the open web.
+
+```
+USER INPUT
+    ↓
+CONTENT / CLAIM EXTRACTION (NLP / AI)
+    ↓
+INDEPENDENT WEB EVIDENCE (Search Registries, Fact Check APIs)
+    ↓
+SOURCE ANALYSIS & PROVENANCE TRACING
+    ↓
+SUPPORTING vs CONTRADICTING EVIDENCE SYNTHESIS
+    ↓
+AI REASONING (Gemini / Groq Multi-Evidence Synthesis)
+    ↓
+UNCERTAINTY ANALYSIS (Epistemic / Aleatoric Calibration)
+    ↓
+TRUST / RISK SCORE (0 - 100 Index)
+    ↓
+VERDICT: VERIFIED TRUE | MOSTLY TRUE | MISLEADING | FALSE | DISPUTED
+    ↓
+EXPLAINABLE VERDICT & AUDIT TRAIL
+```
+
+### Provider Architecture
+```
+APPLICATION / VERIFICATION MODULES
+    ↓
+AIService (Primary Provider Selection & Fallback Orchestration)
+    ↓
+AIProvider Abstraction Interface (Normalized Responses & Token Usage)
+    ├── GeminiProvider (Primary: Google Gemini 1.5 Flash / Pro)
+    └── GroqProvider (Secondary / Fast: Groq LLaMA 3.3 70B / 8B)
+```
+
+- **Primary Provider**: Google Gemini (`AI_PRIMARY_PROVIDER=gemini`)
+- **Fallback Provider**: Groq (`AI_FALLBACK_PROVIDER=groq`)
+- **Fallback Trigger Policy**: Only triggered on retryable failures (rate limits, timeouts, server 5xx, or missing credentials). Malformed requests do NOT trigger fallback.
+- **Zero Frontend Exposure**: Browser never directly communicates with Gemini or Groq; keys are isolated in backend environment variables.

@@ -1,11 +1,22 @@
 # TrustLens Development Roadmap
 
-## Phase 1: Core Foundation (Current Milestone)
+## Phase 1: Core Foundation
 - [x] Full-stack monorepo setup (React + Express + TypeScript + Prisma)
 - [x] Secure authentication engine (Bcrypt + JWT + HTTP-only cookies)
 - [x] Prisma PostgreSQL schema (User + VerificationHistory models)
 - [x] React client with Tailwind design system and route protections
 - [x] Comprehensive test suites and environment inspection
+
+---
+
+## Phase 1.5: AI Provider Foundation (Current Milestone)
+- [x] Multi-provider abstraction (`AIProvider`, `AIService`)
+- [x] Primary Google Gemini integration (`@google/generative-ai`)
+- [x] Secondary / Fast Groq integration (`groq-sdk`)
+- [x] Normalized response structure with token usage and latency
+- [x] Resilient, error-aware fallback strategy (rate limits, timeouts, provider failures)
+- [x] Protected development diagnostic endpoint (`POST /api/ai/test`, `GET /api/ai/status`)
+- [x] Minimal development UI in dashboard for provider connectivity verification
 
 ---
 

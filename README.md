@@ -12,6 +12,7 @@ In this foundational phase, the platform architecture, security protocols, persi
 
 - **Project Foundation**: Full-stack TypeScript architecture linking a React client, Express API server, and shared monorepo contracts.
 - **Authentication Foundation**: Secure authentication pipeline featuring 12-round `bcrypt` password hashing, JSON Web Tokens (JWT), and HTTP-only cookie transport.
+- **AI Provider Foundation**: Decoupled multi-provider abstraction (`AIProvider`, `AIService`) integrating Google Gemini (Primary) and Groq (Fast / Secondary) with automated error-aware fallback, usage normalization, and zero frontend API key leakage.
 - **User Database Foundation**: Prisma ORM with PostgreSQL schemas for `User` and `VerificationHistory` with relational integrity, cascading deletions, and indexes.
 - **Protected Routes**: Client-side route guards enforcing authentication state before granting access to application workspaces (`/dashboard`, `/history`).
 - **Resilient Fallback**: Graceful local development fallback mechanism to allow complete local verification when a PostgreSQL daemon is not actively running.
@@ -44,7 +45,7 @@ Before running TrustLens locally, ensure the following are installed:
 - **Node.js**: v18.0.0 or later (v20+ or v24+ recommended)
 - **npm**: v9.0.0 or later
 - **Git**: v2.30.0 or later
-- **PostgreSQL**: (Optional for Stage 1 evaluation; required for persistent production database deployment)
+- **PostgreSQL**: (Optional for Stage 1/1.5 evaluation; required for persistent production database deployment)
 
 ---
 
@@ -82,6 +83,12 @@ cp .env.example server/.env
 | `JWT_EXPIRES_IN` | `7d` | Token expiration duration |
 | `CORS_ORIGIN` | `http://localhost:5173` | Allowed frontend origin for CORS |
 | `COOKIE_SECURE` | `false` | Enable only when running over HTTPS |
+| `AI_PRIMARY_PROVIDER` | `gemini` | Primary AI provider (`gemini` or `groq`) |
+| `AI_FALLBACK_PROVIDER` | `groq` | Secondary fallback provider (`groq`, `gemini`, or `none`) |
+| `GEMINI_API_KEY` | `""` | Google Gemini API key (kept on backend) |
+| `GEMINI_MODEL` | `gemini-1.5-flash` | Default Gemini model |
+| `GROQ_API_KEY` | `""` | Groq API key (kept on backend) |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Default Groq model |
 
 ---
 

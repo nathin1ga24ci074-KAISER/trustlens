@@ -95,6 +95,31 @@ class ApiService {
       method: 'GET',
     });
   }
+
+  // AI Diagnostic Methods (Protected)
+  async getAIStatus(): Promise<{
+    success: boolean;
+    strategy: { primary: string; fallback: string };
+    providers: Record<string, { configured: boolean; defaultModel: string }>;
+  }> {
+    return this.request('/ai/status', {
+      method: 'GET',
+    });
+  }
+
+  async testAI(data: { prompt: string; provider?: string }): Promise<{
+    success: boolean;
+    provider: string;
+    model: string;
+    response: string;
+    usage: { inputTokens: number | null; outputTokens: number | null; totalTokens?: number | null } | null;
+    latencyMs: number;
+  }> {
+    return this.request('/ai/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 export const api = new ApiService();

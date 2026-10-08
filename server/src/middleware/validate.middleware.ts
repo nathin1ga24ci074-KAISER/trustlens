@@ -31,6 +31,17 @@ export const loginSchema = z.object({
     .min(1, 'Password is required'),
 });
 
+export const aiTestSchema = z.object({
+  prompt: z
+    .string()
+    .trim()
+    .min(1, 'Prompt text is required')
+    .max(8000, 'Prompt cannot exceed 8,000 characters'),
+  provider: z.enum(['gemini', 'groq']).optional(),
+  systemPrompt: z.string().trim().max(4000).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+});
+
 export function validateBody(schema: z.ZodSchema) {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
